@@ -1,0 +1,23 @@
+
+# Secrets and data: never commit
+.env
+.env.*
+!.env.example
+data/raw/
+*.pem
+*.key
+
+# Python, editor and Mac files
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.idea/
+.DS_Store
+mlruns/
+
+# Private Claude Code files
+CLAUDE.local.md
+.claude/settings.local.json
