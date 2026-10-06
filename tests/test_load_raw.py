@@ -1,5 +1,6 @@
-"""Tests for the raw CSV loader's header check (no database needed)."""
+"""Tests for the raw CSV loader's header and column handling (no database needed)."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -8,8 +9,11 @@ from aml_transaction_monitoring.ingestion.load_raw import (
     IBM_HI_SMALL_COLUMNS,
     IBM_HI_SMALL_TABLE_COLUMNS,
     SAML_D_COLUMNS,
+    UK_SANCTIONS_COLUMNS,
     read_header,
+    read_preamble,
     resolve_table_columns,
+    to_column_name,
     validate_header,
 )
 
@@ -55,3 +59,31 @@ def test_ibm_accounts_renamed_by_position() -> None:
 def test_wrong_number_of_table_columns_fails() -> None:
     with pytest.raises(ValueError, match="2 table columns given for 3 CSV columns"):
         resolve_table_columns(("A", "B", "C"), ("a", "b"))
+
+
+def test_punctuation_in_headers_becomes_single_underscores() -> None:
+    assert to_column_name("D.O.B") == "d_o_b"
+    assert to_column_name("Nationality(/ies)") == "nationality_ies"
+    assert to_column_name("Current owner/operator (s)") == "current_owner_operator_s"
+
+
+def test_sanctions_column_names_are_unique_and_plain() -> None:
+    names = resolve_table_columns(UK_SANCTIONS_COLUMNS, None)
+    assert len(names) == 58
+    assert all(re.fullmatch(r"[a-z0-9_]+", n) for n in names)
+
+
+def test_preamble_skipped_and_kept(tmp_path: Path) -> None:
+    csv_file = tmp_path / "list.csv"
+    csv_file.write_text(
+        "\ufeffReport Date: 02-Oct-2026\nName 1,Unique ID\nSMITH,UK001\n",
+        encoding="utf-8",
+    )
+    assert read_header(csv_file, skip_lines=1) == ["Name 1", "Unique ID"]
+    assert read_preamble(csv_file, skip_lines=1) == "Report Date: 02-Oct-2026"
+
+
+def test_no_preamble_gives_none(tmp_path: Path) -> None:
+    csv_file = tmp_path / "plain.csv"
+    csv_file.write_text("Time,Date\n", encoding="utf-8")
+    assert read_preamble(csv_file, skip_lines=0) is None

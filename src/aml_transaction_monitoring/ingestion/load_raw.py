@@ -10,6 +10,7 @@ Usage:
 
 import csv
 import logging
+import re
 from pathlib import Path
 
 import psycopg
@@ -68,10 +69,77 @@ IBM_HI_SMALL_TABLE_COLUMNS = (
     "is_laundering",
 )
 
+# FCDO UK Sanctions List: flattened, so one designation ("Unique ID") has
+# many rows, repeated for each name/alias and each address.
+UK_SANCTIONS_COLUMNS = (
+    "Last Updated",
+    "Unique ID",
+    "OFSI Group ID",
+    "UN Reference Number",
+    "Name 6",
+    "Name 1",
+    "Name 2",
+    "Name 3",
+    "Name 4",
+    "Name 5",
+    "Name type",
+    "Alias strength",
+    "Title",
+    "Name non-latin script",
+    "Non-latin script type",
+    "Non-latin script language",
+    "Regime Name",
+    "Designation Type",
+    "Designation source",
+    "Sanctions Imposed",
+    "Other Information",
+    "UK Statement of Reasons",
+    "Address Line 1",
+    "Address Line 2",
+    "Address Line 3",
+    "Address Line 4",
+    "Address Line 5",
+    "Address Line 6",
+    "Address Postal Code",
+    "Address Country",
+    "Phone number",
+    "Website",
+    "Email address",
+    "Date Designated",
+    "D.O.B",
+    "Nationality(/ies)",
+    "National Identifier number",
+    "National Identifier additional information",
+    "Passport number",
+    "Passport additional information",
+    "Position",
+    "Gender",
+    "Town of birth",
+    "Country of birth",
+    "Type of entity",
+    "Subsidiaries",
+    "Parent company",
+    "Business registration number (s)",
+    "IMO number",
+    "Current owner/operator (s)",
+    "Previous owner/operator (s)",
+    "Current believed flag of ship",
+    "Previous flags",
+    "Type of ship",
+    "Tonnage of ship",
+    "Length of ship",
+    "Year Built",
+    "Hull identification number (HIN)",
+)
+
 
 def to_column_name(header: str) -> str:
-    """Turn a CSV header into a database column name: lower case, spaces to underscores."""
-    return header.strip().lower().replace(" ", "_")
+    """Turn a CSV header into a database column name.
+
+    Lower case; each run of spaces or punctuation becomes one underscore,
+    e.g. "Nationality(/ies)" -> "nationality_ies", "D.O.B" -> "d_o_b".
+    """
+    return re.sub(r"[^a-z0-9]+", "_", header.lower()).strip("_")
 
 
 def resolve_table_columns(
@@ -95,9 +163,19 @@ def resolve_table_columns(
     return names
 
 
-def read_header(csv_path: Path) -> list[str]:
-    """Return the column names from the first line of a CSV file."""
+def read_preamble(csv_path: Path, skip_lines: int) -> str | None:
+    """Return the lines before the header (e.g. a report date), or None if there are none."""
+    if skip_lines == 0:
+        return None
     with csv_path.open(encoding="utf-8-sig", newline="") as f:
+        return " | ".join(f.readline().strip() for _ in range(skip_lines))
+
+
+def read_header(csv_path: Path, skip_lines: int = 0) -> list[str]:
+    """Return the column names from a CSV file, after skipping `skip_lines` lines."""
+    with csv_path.open(encoding="utf-8-sig", newline="") as f:
+        for _ in range(skip_lines):
+            f.readline()
         return next(csv.reader(f))
 
 
@@ -141,6 +219,9 @@ def create_load_log(cur: psycopg.Cursor) -> None:
         )
         """
     )
+    # Added in step 3: lines before the header, e.g. the sanctions list's
+    # "Report Date", so we can show which version of a list was loaded.
+    cur.execute("ALTER TABLE raw.load_log ADD COLUMN IF NOT EXISTS source_note text")
 
 
 def load_csv(
@@ -149,19 +230,23 @@ def load_csv(
     table: str,
     expected_columns: tuple[str, ...],
     table_columns: tuple[str, ...] | None = None,
+    skip_lines: int = 0,
 ) -> int:
     """Replace `raw.<table>` with the contents of a CSV file and log the load.
 
     Column names default to the CSV header in lower case with underscores;
     pass `table_columns` to name them explicitly. Every column is text.
+    `skip_lines` lines before the header are not loaded; they are saved in
+    `raw.load_log.source_note` instead.
     The empty-and-load runs in one transaction: if anything fails, the
     table keeps its previous rows and no log entry is written.
 
     Returns:
         Number of rows loaded.
     """
-    validate_header(read_header(csv_path), expected_columns, csv_path.name)
+    validate_header(read_header(csv_path, skip_lines), expected_columns, csv_path.name)
     names = resolve_table_columns(expected_columns, table_columns)
+    source_note = read_preamble(csv_path, skip_lines)
 
     target = sql.Identifier("raw", table)
     column_defs = sql.SQL(", ").join(
@@ -184,6 +269,8 @@ def load_csv(
         ).format(target, column_list)
         sent = 0
         with cur.copy(copy_sql) as copy, csv_path.open("rb") as f:
+            for _ in range(skip_lines):
+                f.readline()
             while chunk := f.read(CHUNK_SIZE):
                 copy.write(chunk)
                 sent += len(chunk)
@@ -193,8 +280,9 @@ def load_csv(
         cur.execute(sql.SQL("SELECT count(*) FROM {}").format(target))
         row_count = cur.fetchone()[0]
         cur.execute(
-            "INSERT INTO raw.load_log (table_name, file_name, row_count) VALUES (%s, %s, %s)",
-            (f"raw.{table}", csv_path.name, row_count),
+            "INSERT INTO raw.load_log (table_name, file_name, row_count, source_note)"
+            " VALUES (%s, %s, %s, %s)",
+            (f"raw.{table}", csv_path.name, row_count, source_note),
         )
 
     logger.info("Loaded %d rows into raw.%s", row_count, table)
@@ -202,7 +290,7 @@ def load_csv(
 
 
 def main() -> None:
-    """Load SAML-D into `raw.saml_d` and IBM HI-Small into `raw.ibm_hi_small`."""
+    """Load SAML-D, IBM HI-Small and the UK Sanctions List into schema `raw`."""
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
     )
@@ -214,6 +302,13 @@ def main() -> None:
             "ibm_hi_small",
             IBM_HI_SMALL_COLUMNS,
             IBM_HI_SMALL_TABLE_COLUMNS,
+        )
+        load_csv(
+            conn,
+            RAW_DIR / "UK-Sanctions-List.csv",
+            "uk_sanctions_list",
+            UK_SANCTIONS_COLUMNS,
+            skip_lines=1,  # line 1 is "Report Date: ...", the header is line 2
         )
 
 
