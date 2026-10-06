@@ -40,6 +40,60 @@ SAML_D_COLUMNS = (
     "Laundering_type",
 )
 
+IBM_HI_SMALL_COLUMNS = (
+    "Timestamp",
+    "From Bank",
+    "Account",
+    "To Bank",
+    "Account",
+    "Amount Received",
+    "Receiving Currency",
+    "Amount Paid",
+    "Payment Currency",
+    "Payment Format",
+    "Is Laundering",
+)
+# The file has two columns both called "Account"; name them by position.
+IBM_HI_SMALL_TABLE_COLUMNS = (
+    "timestamp",
+    "from_bank",
+    "from_account",
+    "to_bank",
+    "to_account",
+    "amount_received",
+    "receiving_currency",
+    "amount_paid",
+    "payment_currency",
+    "payment_format",
+    "is_laundering",
+)
+
+
+def to_column_name(header: str) -> str:
+    """Turn a CSV header into a database column name: lower case, spaces to underscores."""
+    return header.strip().lower().replace(" ", "_")
+
+
+def resolve_table_columns(
+    expected_columns: tuple[str, ...], table_columns: tuple[str, ...] | None
+) -> tuple[str, ...]:
+    """Return the table's column names, one per CSV column, all unique.
+
+    If `table_columns` is not given, names are derived from the CSV header.
+
+    Raises:
+        ValueError: if the counts differ or a name appears twice.
+    """
+    names = table_columns or tuple(to_column_name(c) for c in expected_columns)
+    if len(names) != len(expected_columns):
+        raise ValueError(
+            f"{len(names)} table columns given for {len(expected_columns)} CSV columns"
+        )
+    duplicates = sorted({n for n in names if names.count(n) > 1})
+    if duplicates:
+        raise ValueError(f"Duplicate table column names: {duplicates}")
+    return names
+
 
 def read_header(csv_path: Path) -> list[str]:
     """Return the column names from the first line of a CSV file."""
@@ -94,10 +148,12 @@ def load_csv(
     csv_path: Path,
     table: str,
     expected_columns: tuple[str, ...],
+    table_columns: tuple[str, ...] | None = None,
 ) -> int:
     """Replace `raw.<table>` with the contents of a CSV file and log the load.
 
-    Column names are the CSV header in lower case; every column is text.
+    Column names default to the CSV header in lower case with underscores;
+    pass `table_columns` to name them explicitly. Every column is text.
     The empty-and-load runs in one transaction: if anything fails, the
     table keeps its previous rows and no log entry is written.
 
@@ -105,11 +161,13 @@ def load_csv(
         Number of rows loaded.
     """
     validate_header(read_header(csv_path), expected_columns, csv_path.name)
+    names = resolve_table_columns(expected_columns, table_columns)
 
     target = sql.Identifier("raw", table)
     column_defs = sql.SQL(", ").join(
-        sql.SQL("{} text").format(sql.Identifier(c.lower())) for c in expected_columns
+        sql.SQL("{} text").format(sql.Identifier(n)) for n in names
     )
+    column_list = sql.SQL(", ").join(sql.Identifier(n) for n in names)
 
     with conn.transaction(), conn.cursor() as cur:
         create_load_log(cur)
@@ -119,9 +177,11 @@ def load_csv(
         cur.execute(sql.SQL("TRUNCATE {}").format(target))
 
         logger.info("Streaming %s into raw.%s", csv_path.name, table)
-        copy_sql = sql.SQL("COPY {} FROM STDIN WITH (FORMAT csv, HEADER true)").format(
-            target
-        )
+        # Naming the columns makes COPY fail loudly if an existing table's
+        # columns no longer match, instead of filling them by position.
+        copy_sql = sql.SQL(
+            "COPY {} ({}) FROM STDIN WITH (FORMAT csv, HEADER true)"
+        ).format(target, column_list)
         sent = 0
         with cur.copy(copy_sql) as copy, csv_path.open("rb") as f:
             while chunk := f.read(CHUNK_SIZE):
@@ -142,12 +202,19 @@ def load_csv(
 
 
 def main() -> None:
-    """Load SAML-D into `raw.saml_d`."""
+    """Load SAML-D into `raw.saml_d` and IBM HI-Small into `raw.ibm_hi_small`."""
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
     )
     with get_connection() as conn:
         load_csv(conn, RAW_DIR / "SAML-D.csv", "saml_d", SAML_D_COLUMNS)
+        load_csv(
+            conn,
+            RAW_DIR / "HI-Small_Trans.csv",
+            "ibm_hi_small",
+            IBM_HI_SMALL_COLUMNS,
+            IBM_HI_SMALL_TABLE_COLUMNS,
+        )
 
 
 if __name__ == "__main__":
