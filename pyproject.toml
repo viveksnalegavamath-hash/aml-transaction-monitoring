@@ -13,6 +13,7 @@ dependencies = [
     "lightgbm>=4.7.0",
     "mlflow>=3.16.1",
     "networkx>=3.7",
+    "numpy>=2.3.5",
     "pandas>=3.0.6",
     "psycopg[binary]>=3.3.6",
     "pyarrow>=25.0.1",

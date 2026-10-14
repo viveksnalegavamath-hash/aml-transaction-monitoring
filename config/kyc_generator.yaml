@@ -1,0 +1,73 @@
+# Settings for the SYNTHETIC KYC customer table (raw.kyc_customers).
+# Every record is made up; none describes a real person or company.
+#
+# No label leakage: these distributions are the generator's only source of
+# attributes. Nothing here is fitted to, or derived from, the transaction data.
+# Values are illustrative, chosen to look like a UK retail bank's customer
+# base; they are not calibrated to official statistics.
+
+version: 1
+seed: 20261014
+locale: en_GB
+
+customer_type_shares:
+  individual: 0.85
+  business: 0.15
+
+# Politically exposed persons: share of individuals (businesses are never PEPs).
+pep_share_of_individuals: 0.002
+
+# Individuals: nationality. Businesses: country of incorporation.
+# ISO 3166-1 alpha-2 codes. Non-GB countries are drawn with equal chance.
+nationality:
+  home: GB
+  home_share: 0.85
+  others: [IN, PL, PK, RO, IE, IT, NG, DE, FR, ES, US, TR, AE, CH, JP, MA, AL, MX, AT, NL]
+
+# Every account is opened before the first SAML-D transaction (2022-10-07).
+onboarding:
+  start: 2000-01-01
+  end: 2022-10-06
+
+# Individuals only; date of birth is set so that age at onboarding is in this range.
+age_at_onboarding:
+  min_years: 18
+  max_years: 85
+
+# Declared annual income (individuals) or turnover (businesses), in GBP.
+# Log-normal around each occupation's median: median * exp(sigma * Z), Z ~ N(0, 1).
+income:
+  individual: {sigma: 0.5, round_to: 500}
+  business: {sigma: 1.0, round_to: 1000}
+
+# Occupations (individuals) and sectors (businesses): weight = relative share.
+# Sectors often treated as higher risk in AML risk assessments (money service
+# businesses, cash-intensive businesses, high-value dealers, property) are
+# included on purpose. Risk ratings are assigned later in dbt, not here.
+occupations:
+  individual:
+    - {name: Office worker, weight: 25, median_income: 30000}
+    - {name: Professional, weight: 10, median_income: 55000}
+    - {name: Retail or hospitality worker, weight: 10, median_income: 22000}
+    - {name: Healthcare worker, weight: 8, median_income: 35000}
+    - {name: Teacher, weight: 5, median_income: 38000}
+    - {name: Skilled tradesperson, weight: 8, median_income: 33000}
+    - {name: Self-employed, weight: 8, median_income: 30000}
+    - {name: Company director, weight: 4, median_income: 80000}
+    - {name: Student, weight: 7, median_income: 8000}
+    - {name: Retired, weight: 12, median_income: 20000}
+    - {name: Unemployed, weight: 3, median_income: 6000}
+  business:
+    - {name: Professional services, weight: 15, median_income: 400000}
+    - {name: Retail, weight: 15, median_income: 600000}
+    - {name: Hospitality, weight: 10, median_income: 500000}
+    - {name: Construction, weight: 12, median_income: 800000}
+    - {name: IT and software, weight: 10, median_income: 500000}
+    - {name: Manufacturing, weight: 8, median_income: 1500000}
+    - {name: Wholesale and import/export, weight: 8, median_income: 1200000}
+    - {name: Real estate, weight: 6, median_income: 700000}
+    - {name: Motor vehicle dealer, weight: 4, median_income: 1000000}
+    - {name: Cash-intensive business, weight: 4, median_income: 200000}
+    - {name: Money service business, weight: 2, median_income: 300000}
+    - {name: Jewellery and precious metals dealer, weight: 2, median_income: 600000}
+    - {name: Charity or not-for-profit, weight: 4, median_income: 250000}

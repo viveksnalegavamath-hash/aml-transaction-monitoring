@@ -50,6 +50,8 @@ src/aml_transaction_monitoring/   Python package
     ml/           features, models, SHAP, network
     api/          FastAPI app
 rules/            R01–R10, S01 YAML specs (thresholds live here)
+config/           other settings in YAML (e.g. synthetic KYC generator)
+sql/              stand-alone SQL (profiling, checks)
 dbt/              dbt project: staging + marts + tests
 tests/            pytest
 docs/             plan, model documentation, mock SAR, diagrams
