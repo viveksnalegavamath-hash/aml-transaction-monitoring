@@ -65,6 +65,34 @@ def test_sql_must_use_the_fct_placeholder() -> None:
         check_rule_sql("RX", "select * from marts.fct_transactions", {})
 
 
+def test_sql_may_read_kyc_but_no_other_table() -> None:
+    check_rule_sql("RX", "select * from {fct} join {dim_customer} using (x)", {})
+    with pytest.raises(ValueError, match="unknown tables \\['eval'\\]"):
+        check_rule_sql("RX", "select * from {fct} join {eval} using (x)", {})
+
+
+def test_disabled_rule_runs_only_when_asked_for(tmp_path: Path) -> None:
+    text = (RULES_DIR / "R01_structuring.yaml").read_text(encoding="utf-8")
+    (tmp_path / "R01_structuring.yaml").write_text(
+        text.replace("version: 1\n", "version: 1\nenabled: false\n", 1),
+        encoding="utf-8",
+    )
+    shutil.copy(RULES_DIR / "R02_many_to_one.yaml", tmp_path / "R02_many_to_one.yaml")
+    assert [r.id for r in load_rules(tmp_path)] == ["R02"]
+    assert [r.id for r in load_rules(tmp_path, only=["R01"])] == ["R01"]
+    assert [r.id for r in load_rules(tmp_path, include_disabled=True)] == ["R01", "R02"]
+
+
+def test_enabled_must_be_true_or_false(tmp_path: Path) -> None:
+    text = (RULES_DIR / "R01_structuring.yaml").read_text(encoding="utf-8")
+    bad = tmp_path / "R01_structuring.yaml"
+    bad.write_text(
+        text.replace("version: 1\n", "version: 1\nenabled: 0\n", 1), encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="enabled must be true or false"):
+        load_rule(bad)
+
+
 def test_every_rule_sql_file_is_label_free() -> None:
     for path in SQL_DIR.glob("*.sql"):
         assert "laundering" not in path.read_text(encoding="utf-8").lower(), path.name

@@ -4,13 +4,31 @@ A working transaction monitoring (TM) system of the kind UK banks run to detect 
 
 **Pipeline:** transactions in → rules + ML check them → alerts → each alert explained → API, automation and dashboard.
 
+## Scope change — fast track (decided 22 Oct 2026)
+
+The plan below is the original full scope. On 22 Oct 2026 the remaining work was cut to a fast track of about 30 hours. Items marked *(future work)* are not built in this version; the README lists them as future work.
+
+**Fast-track sequence (after Phase 2 step 4):**
+
+1. R09 cash intensity; R10 income mismatch (built and tested, but disabled on SAML-D: its synthetic declared income carries no information about the accounts).
+2. Full-data baseline of the rules.
+3. Tune three rules (above/below-the-line testing, tuning months only).
+4. S01 sanctions screening (rapidfuzz).
+5. One worked case (SYNTHETIC).
+6. README, then make the repo public (gitleaks full history, secret scanning, push protection).
+7. One XGBoost model with SHAP reasons; rules vs rules + ML on the same hold-out.
+8. FastAPI with Docker Compose and GitHub Actions CI, running locally.
+9. Charts in the README instead of a Power BI dashboard.
+
+**Cut (future work):** R08 round-tripping, network analysis, the IBM out-of-sample test, daily customer risk scores, AWS deployment, n8n, the AI analyst assistant, Power BI and the demo video.
+
 ## Deliverables
 
 1. Public GitHub repository with clean code, tests and a strong README
-2. Live REST API on AWS that scores a transaction and returns alerts
-3. Power BI dashboard of alerts, risk scores and typologies
+2. REST API that scores a transaction and returns alerts (fast track: runs locally with Docker Compose; AWS deployment is future work)
+3. Power BI dashboard of alerts, risk scores and typologies *(future work)* — fast track: charts in the README
 4. Model documentation written the way banks document models
-5. Demo video and write-up
+5. Demo video *(future work)* and write-up
 
 ## Phases (~6 weeks at 15–20 hours a week)
 
@@ -118,7 +136,7 @@ Rules are tailored to typologies, understood by staff, calibrated and backed by 
 | R05 | High-risk jurisdiction | Any payment to a FATF call-for-action country; ≥ £5,000 to a grey-list country | Per payment | Cross-border |
 | R06 | Large vs profile | Amount > 3× customer's 90-day average and > £10,000 | Per payment | Single Large Transaction |
 | R07 | Behaviour change | 30-day volume > 5× prior 90-day monthly average, or dormant 90+ days then active | 30 days | Behaviour Change 1 and 2 |
-| R08 | Round-tripping | Funds return to origin within 4 hops | 30 days | Cycle, Bipartite, Stacked Bipartite |
+| R08 | Round-tripping *(future work)* | Funds return to origin within 4 hops | 30 days | Cycle, Bipartite, Stacked Bipartite |
 | R09 | Cash intensity | Cash > 50% of monthly inflow and > £5,000 | 30 days | Cash deposit/withdrawal abuse |
 | R10 | Income mismatch | 30-day inflows > 2× declared monthly income | 30 days | Over-Invoicing |
 | S01 | Sanctions / PEP match | Fuzzy match ≥ 90 against UK Sanctions List or PEP list | Onboarding + list update | Screening queue |
@@ -216,31 +234,31 @@ Every status change is written to an audit table (who, when, why).
 **Done when:** one command produces alerts and the evaluation report.
 
 ### Phase 3 — Risk, ML and network
-- [ ] Daily customer risk scores and bands
+- [ ] Daily customer risk scores and bands *(future work)*
 - [ ] Feature tables in dbt
-- [ ] NetworkX graph, cycle detection, graph features
-- [ ] Logistic regression baseline, then XGBoost; MLflow tracking
+- [ ] NetworkX graph, cycle detection, graph features *(future work)*
+- [ ] XGBoost with SHAP reasons (fast track: one model; logistic regression baseline and MLflow tracking optional)
 - [ ] Top three SHAP reasons on each alert
-- [ ] Score IBM HI-Small without retraining
-- [ ] Rules-only vs rules + ML at the same alert volume
+- [ ] Score IBM HI-Small without retraining *(future work)*
+- [ ] Rules-only vs rules + ML on the same hold-out, at the same alert volume
 
 **Done when:** the hybrid's extra true cases and removed false positives are stated with numbers.
 
 ### Phase 4 — API, n8n, Docker and AWS
 - [ ] FastAPI endpoints with Pydantic schemas, API-key auth, rate limiting, tests
-- [ ] Dockerfile; database + API + n8n in Docker Compose
+- [ ] Dockerfile; database + API in Docker Compose (n8n *(future work)*)
 - [ ] GitHub Actions: ruff + pytest on every push
-- [ ] AWS: budget alert, image to ECR, ECS Fargate, secrets in Secrets Manager
-- [ ] AI analyst assistant endpoint
-- [ ] n8n daily re-screening workflow with human approval; export to `automation/`
+- [ ] AWS: budget alert, image to ECR, ECS Fargate, secrets in Secrets Manager *(future work)*
+- [ ] AI analyst assistant endpoint *(future work)*
+- [ ] n8n daily re-screening workflow with human approval; export to `automation/` *(future work)*
 
-**Done when:** a public URL serves Swagger docs and `POST /transactions/score` works.
+**Done when:** `docker compose up` serves Swagger docs locally, `POST /transactions/score` works, and CI passes on GitHub (fast track; the public URL is future work).
 
 ### Phase 5 — Dashboard and showcase
-- [ ] Power BI: executive overview, rule performance, customer risk, typology + geography
+- [ ] Power BI: executive overview, rule performance, customer risk, typology + geography *(future work)*
 - [ ] Model documentation and mock SAR narrative
-- [ ] README: architecture, results, screenshots, how to run
-- [ ] 3-minute demo video
+- [ ] README: architecture, results, charts, how to run, future work
+- [ ] 3-minute demo video *(future work)*
 
 **Done when:** a recruiter understands the project from the README in 60 seconds.
 

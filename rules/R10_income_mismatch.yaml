@@ -1,0 +1,55 @@
+# Rule spec. Thresholds live here, never in code. The logic is in
+# src/aml_transaction_monitoring/rules/sql/R10.sql, which receives every value
+# below as a bound query parameter.
+#
+# DISABLED on SAML-D (see change log): runs only when asked for by ID, e.g.
+#   uv run python -m aml_transaction_monitoring.rules.engine --rule R10
+
+id: R10
+name: Income mismatch
+version: 1
+enabled: false
+typology: >
+  Income mismatch (for example over-invoicing): an account receives far more
+  than the customer's declared income or turnover can explain.
+logic: >
+  Alert a customer's account when an incoming payment brings the money it
+  received in the last `window_days` days above `income_multiple` times the
+  customer's declared monthly income (declared annual income or turnover / 12,
+  from the KYC record). Accounts without a KYC record are not checked.
+sql: R10.sql
+parameters:
+  income_multiple: 2
+  window_days: 30
+suppression_days: 7
+reason: >
+  Received £{inflow_gbp:,.2f} in {n_inflows} payments within {window_days}
+  days, {ratio:,.1f} times the declared monthly income of
+  £{monthly_income_gbp:,.2f} (rule: more than {income_multiple} times declared
+  monthly income).
+rationale: >
+  Scrutiny must test whether transactions are consistent with the firm's
+  knowledge of the customer, their business and risk profile (MLR 2017
+  reg. 28(11)); declared income or turnover is the basic measure of what the
+  customer's account should see. Rules tailored to the firm's risks: FCA
+  FCG 3.2.
+expected_weekly_alerts: null
+owner: Vivek Nalegavamath (AML rules owner, portfolio project)
+last_tuned: null
+change_log:
+  - date: 2026-10-22
+    version: 1
+    change: >
+      Created with the project plan's starting values (30-day inflows more
+      than 2 times declared monthly income), and disabled (enabled false).
+    reason: >
+      The rule needs real declared income to mean anything. On SAML-D the KYC
+      table is synthetic and its income is drawn without looking at the
+      transactions (on purpose, to avoid leakage), so it says nothing about
+      an account. Profiling: 88% of individual customers who receive money
+      (66,834 of 76,153) would trigger it in some month (median monthly
+      inflow £19,447 vs median declared monthly income £2,417); businesses
+      36%. Running it would add a large, essentially random alert volume.
+      Rescaling the synthetic income would only change the volume, not add
+      signal. Built and tested so it is ready for real KYC data; excluded from
+      the SAML-D baseline (Vivek, 22 Oct 2026).

@@ -1,0 +1,44 @@
+# Rule spec. Thresholds live here, never in code. The logic is in
+# src/aml_transaction_monitoring/rules/sql/R09.sql, which receives every value
+# below as a bound query parameter.
+
+id: R09
+name: Cash intensity
+version: 1
+typology: >
+  Cash-intensive activity: an account funded mainly by cash, a common way to
+  place criminal proceeds into the banking system, especially when the cash
+  does not fit the customer's profile.
+logic: >
+  Alert the receiving account when a cash deposit brings the cash it was paid
+  in the last `window_days` days above `min_cash_gbp`, and above
+  `min_cash_share` of all the money it received in that time.
+sql: R09.sql
+parameters:
+  min_cash_gbp: 5000
+  min_cash_share: 0.5
+  window_days: 30
+suppression_days: 7
+reason: >
+  Cash deposits of £{cash_gbp:,.2f} ({n_cash} deposits), {cash_share:.0%} of
+  the £{inflow_gbp:,.2f} received within {window_days} days (rule: more than
+  £{min_cash_gbp:,.0f} in cash and more than {min_cash_share:.0%} of inflows).
+rationale: >
+  Scrutiny must test whether transactions fit the customer's profile (MLR
+  2017 reg. 28(11)), with rules tailored to the firm's risks (FCA FCG 3.2).
+  Cash is a main route for placing criminal proceeds into the financial
+  system, so an account funded mostly by cash deposits is a standard red
+  flag.
+expected_weekly_alerts: null  # set from the baseline run
+owner: Vivek Nalegavamath (AML rules owner, portfolio project)
+last_tuned: null
+change_log:
+  - date: 2026-10-22
+    version: 1
+    change: Created with the project plan's starting values (cash more than 50% of 30-day inflow and more than £5,000).
+    reason: >
+      Not yet tuned (tuning uses Oct 2022 – May 2023 only). Cash deposits
+      only, as the plan states. Cash withdrawals (SAML-D average £153) are
+      not covered: a mirrored clause at £5,000 would almost never fire, and
+      choosing another threshold now would be tuning without evidence; to
+      review in tuning.

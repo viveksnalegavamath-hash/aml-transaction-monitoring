@@ -5,8 +5,10 @@ file in `rules/sql/`. The engine:
 
 1. loads and checks every spec (required fields, every SQL placeholder has a
    YAML parameter and every parameter is used, no reference to the label);
-2. runs each rule's SQL on `fct_transactions`, binding thresholds as query
-   parameters (never string formatting) and the table as a quoted identifier;
+   a spec with `enabled: false` is skipped unless its ID is asked for;
+2. runs each rule's SQL on `fct_transactions` (and, if the rule needs KYC,
+   `dim_customer`), binding thresholds as query parameters (never string
+   formatting) and the tables as quoted identifiers;
 3. suppresses repeat alerts for the same account within the rule's
    suppression period;
 4. writes `alerts`, `alert_transactions` and a `rule_runs` audit row, in one
@@ -62,6 +64,9 @@ REQUIRED_FIELDS = (
     "change_log",
 )
 PLACEHOLDER = re.compile(r"%\((\w+)\)s")
+# Tables a rule may read: braces placeholder -> table in the same schema.
+TABLES = {"fct": "fct_transactions", "dim_customer": "dim_customer"}
+TABLE_PLACEHOLDER = re.compile(r"\{(\w+)\}")
 # Rules must never touch the label or the evaluation schema, even in comments.
 FORBIDDEN = re.compile(
     r"evaluation|laundering|eval_transaction_labels|typolog", re.IGNORECASE
@@ -120,6 +125,7 @@ class Rule:
     reason: str
     sql_text: str
     spec: dict[str, Any]
+    enabled: bool = True
 
 
 @dataclass(frozen=True)
@@ -161,6 +167,9 @@ def check_rule_sql(rule_id: str, sql_text: str, parameters: dict[str, Any]) -> N
         raise ValueError(
             f"{rule_id}: SQL must read the table through the fct placeholder"
         )
+    unknown_tables = sorted(set(TABLE_PLACEHOLDER.findall(sql_text)) - TABLES.keys())
+    if unknown_tables:
+        raise ValueError(f"{rule_id}: SQL reads unknown tables {unknown_tables}")
     placeholders = set(PLACEHOLDER.findall(sql_text))
     missing = sorted(placeholders - parameters.keys())
     unused = sorted(parameters.keys() - placeholders)
@@ -198,6 +207,9 @@ def load_rule(path: Path, sql_dir: Path = SQL_DIR) -> Rule:
         raise ValueError(f"{rule_id}: suppression_days must be a positive whole number")
     if not spec["change_log"]:
         raise ValueError(f"{rule_id}: change_log must have at least one entry")
+    enabled = spec.get("enabled", True)
+    if enabled is not True and enabled is not False:
+        raise ValueError(f"{rule_id}: enabled must be true or false")
     sql_text = (sql_dir / spec["sql"]).read_text(encoding="utf-8")
     check_rule_sql(rule_id, sql_text, params)
     return Rule(
@@ -209,13 +221,19 @@ def load_rule(path: Path, sql_dir: Path = SQL_DIR) -> Rule:
         reason=" ".join(spec["reason"].split()),
         sql_text=sql_text,
         spec=spec,
+        enabled=enabled,
     )
 
 
 def load_rules(
-    rules_dir: Path = RULES_DIR, only: list[str] | None = None
+    rules_dir: Path = RULES_DIR,
+    only: list[str] | None = None,
+    include_disabled: bool = False,
 ) -> list[Rule]:
-    """Load every rule spec in `rules_dir` (or only the given IDs), sorted by ID.
+    """Load the enabled rule specs in `rules_dir` (or only the given IDs), sorted by ID.
+
+    Rules asked for by ID are loaded even if disabled; `include_disabled`
+    loads every spec (e.g. for rule names in reports).
 
     Raises:
         ValueError: if a requested ID has no spec, or two specs share an ID.
@@ -228,16 +246,16 @@ def load_rules(
         unknown = sorted(set(only) - set(ids))
         if unknown:
             raise ValueError(f"No rule spec for {unknown}")
-        rules = [r for r in rules if r.id in only]
-    return rules
+        return [r for r in rules if r.id in only]
+    return [r for r in rules if r.enabled or include_disabled]
 
 
 def find_candidates(
     conn: psycopg.Connection, rule: Rule, schema: str
 ) -> list[Candidate]:
-    """Run a rule's SQL on `<schema>.fct_transactions` and return its candidate rows."""
+    """Run a rule's SQL on the tables in `<schema>` and return its candidate rows."""
     query = sql.SQL(rule.sql_text).format(
-        fct=sql.Identifier(schema, "fct_transactions")
+        **{name: sql.Identifier(schema, table) for name, table in TABLES.items()}
     )
     with conn.transaction(), conn.cursor() as cur:
         cur.execute(query, rule.parameters)
@@ -383,7 +401,9 @@ def main() -> None:
         help="run on the 10%% account sample (marts_sample); development only",
     )
     parser.add_argument(
-        "--rule", action="append", help="run only this rule ID (repeatable)"
+        "--rule",
+        action="append",
+        help="run only this rule ID (repeatable; also runs disabled rules)",
     )
     args = parser.parse_args()
     logging.basicConfig(

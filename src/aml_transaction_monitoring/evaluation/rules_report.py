@@ -581,7 +581,7 @@ def main() -> None:
         if args.sample
         else ("marts", "evaluation")
     )
-    rule_names = {r.id: r.name for r in load_rules()}
+    rule_names = {r.id: r.name for r in load_rules(include_disabled=True)}
     with get_connection() as conn:
         rule_rows = fetch_rule_rows(conn, marts, labels, config, args.sample)
         rows = fetch_rows(conn, marts, labels, config, args.sample)
