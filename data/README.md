@@ -29,9 +29,9 @@ Queries: [`sql/profiling/saml_d_profile.sql`](../sql/profiling/saml_d_profile.sq
 | --- | --- | --- | --- |
 | Q1 | Size and period | 9,504,852 rows; 2022-10-07 to 2023-08-23 (321 days) | About 10.5 months: enough for a time-based train / validation / test split and 90-day rule windows |
 | Q2 | Missing / malformed values | **0** in every column; all times `HH:MM:SS`, all dates `YYYY-MM-DD`, all amounts numeric, label always 0 or 1 | Staging can cast types directly; dbt tests will still assert it stays true |
-| Q3 | Amounts | No zero or negative amounts; min 3.73, median 6,114, p99 45,022, max 12,618,498 | Heavy right tail: rules and features should use medians / log amounts, not means. Amounts are in the *payment* currency, so mixed currencies here |
+| Q3 | Amounts | No zero or negative amounts; min 3.73, median 6,114, p99 45,022, max 12,618,498 | Heavy right tail: rules and features should use medians / log amounts, not means. ~~Amounts are in the *payment* currency~~ — **corrected 22 Oct 2026:** amounts are on one common scale, treated as GBP (see "Amounts and currencies" below) |
 | Q4 | Payment types | 7 types: credit card, debit card, cheque, ACH (~21% each), cross-border 9.8%, cash withdrawal 3.2%, cash deposit 2.4% | Cash is 5.5% of rows: the population for R01 (structuring) and R09 (cash intensity) |
-| Q5 | Currencies | 13 currencies, 169 pairs; 88.5% GBP → GBP; 4.3% paid in a non-GBP currency; 11.4% change currency | `amount_gbp` needs an FX conversion for 4.3% of rows. "Dirham" (UAE) and "Moroccan dirham" are different currencies — map to ISO codes AED and MAD |
+| Q5 | Currencies | 13 currencies, 169 pairs; 88.5% GBP → GBP; 4.3% paid in a non-GBP currency; 11.4% change currency | ~~`amount_gbp` needs an FX conversion~~ — corrected: no conversion, see below. "Dirham" (UAE) and "Moroccan dirham" are different currencies — map to ISO codes AED and MAD |
 | Q6 | Cross-border | 9.83% of rows have different sender and receiver bank countries; they match `payment_type = 'Cross-border'` except **417 rows** whose countries differ but whose type is not cross-border | Derive cross-border from the countries, not from the payment type; flag the 417 as a data-quality note |
 | Q6b | Bank locations | 18 locations, as names (`UK`, `UAE`, `USA`, ...); UK is the sender in 96.6% of rows | Map to ISO 3166 codes in staging; `dim_country` joins FATF status on the ISO code |
 | Q7 | Self-transfers | 0 | Unlike IBM HI-Small, which has some — no special handling needed for SAML-D |
@@ -41,7 +41,7 @@ Queries: [`sql/profiling/saml_d_profile.sql`](../sql/profiling/saml_d_profile.sq
 
 ### Points to carry into Phase 2 (rules)
 
-- **Structuring averages 5,246 per transaction** (payment currency, mostly GBP), below R01's starting band of £8,000–£9,999, which targets amounts kept just under £10,000. SAML-D's structuring may sit lower; check during R01 calibration rather than assume.
+- **Structuring averages 5,246 per transaction** (treated as GBP), below R01's starting band of £8,000–£9,999, which targets amounts kept just under £10,000. SAML-D's structuring may sit lower; check during R01 calibration rather than assume.
 - **Single large transactions look like normal large ones by amount alone**: suspicious `Single_large` averages 253,473 vs 252,634 for `Normal_single_large`. R06 rightly compares against the customer's own history, not a fixed amount.
 - **Over-invoicing is rare (54 rows) but huge** (average 4.8M) — a few rows will dominate any amount-based statistic.
 - 971,664 rows (10.2%) fall between 8,000 and 9,999.99 across *all* payment types, so any "just below £10k" logic must be limited to cash.
@@ -102,13 +102,30 @@ Algeria and Namibia appear on the grey-list page only under "no longer subject t
 
 Among the 21 SAML-D / KYC countries: **high** — Pakistan, Nigeria, Mexico, Turkey; **medium** — Morocco, India, Albania, Romania; **low** — the other 13 (UK, USA, UAE, Switzerland, Japan and the EU countries). None of them is on a FATF list, so FATF status alone would flag no SAML-D transaction — the internal rating is what separates them.
 
-## FX rates (`raw.fx_rates_hmrc`)
+## Amounts and currencies: `Amount` is treated as GBP
 
-Used for `amount_gbp`: SAML-D amounts are in the payment currency (4.3% of rows not GBP). HMRC rates are currency units per £1, so `amount_gbp = amount / units_per_gbp` for the transaction's month.
+**Decided 22 Oct 2026 (Vivek): `amount_gbp = Amount` for every row; no FX conversion.** Profiling (Q3, Q5) had assumed amounts were in the payment currency. Building `fct_transactions` with HMRC rates showed that assumption was untested and almost certainly wrong: the median amount is about the same in every currency, whatever its exchange rate.
+
+| Payment currency | Rows | Median `Amount` | HMRC units per £1 (average) | Median if converted |
+| --- | --- | --- | --- | --- |
+| GBP | 9,099,293 | 6,046 | 1 | £6,046 |
+| EUR | 117,164 | 7,640 | 1.15 | £6,670 |
+| USD | 26,061 | 7,547 | 1.22 | £6,203 |
+| JPY | 25,562 | 7,176 | 168 | £43 |
+| PKR | 27,196 | 7,585 | 312 | £25 |
+| NGN | 27,143 | 7,652 | 616 | £13 |
+
+If amounts were in each currency's own units, the median yen amount would be ~170 times the pound one; it is 1.19 times. So `Amount` is on one scale (most likely pounds) and the currency columns only describe the payment. Converting would have turned a typical naira payment into £13 and distorted every amount-based rule for 4.3% of rows. This conclusion comes from the data; it is not confirmed in the SAML-D paper.
+
+Guarded by the dbt test `saml_d_amounts_on_common_scale`: it fails if any currency's median amount falls outside half to double the GBP median (all were 1.18–1.27 at decision time). `payment_currency` and `received_currency` stay as descriptive facts, e.g. for currency-mismatch features.
+
+## FX rates (`raw.fx_rates_hmrc`) — loaded, not applied to SAML-D
+
+Kept for IBM HI-Small (Phase 3), whose amounts may be in real currency units — to be checked the same way before any conversion. HMRC rates are currency units per £1.
 
 - All 12 non-GBP SAML-D currencies (AED, ALL, CHF, EUR, INR, JPY, MAD, MXN, NGN, PKR, TRY, USD) have a rate in all 11 months.
 - Some currencies are listed under several countries (AED for Abu Dhabi, Dubai and UAE; USD for USA, Liberia and others); every such duplicate carries the same rate in the same month — checked on load, and tested again in dbt.
-- **Limitation: one rate per currency per month** (taken by HMRC at midday on the day before publication). Within a month every transaction uses that rate, so `amount_gbp` can differ from the day's actual rate. This matters most for currencies that moved sharply in the period: NGN went from 494 to 1,020 per £1, TRY from 21 to 35, PKR from 247 to 366.
+- **Limitation: one rate per currency per month** (taken by HMRC at midday on the day before publication). Within a month every transaction uses that rate, so a converted amount can differ from the day's actual rate. This matters most for currencies that moved sharply in the period: NGN went from 494 to 1,020 per £1, TRY from 21 to 35, PKR from 247 to 366.
 
 ## UK Sanctions List notes
 

@@ -1,10 +1,14 @@
-# Settings for the FX rates used to compute amount_gbp (raw.fx_rates_hmrc).
+# Settings for HMRC FX rates (raw.fx_rates_hmrc).
+#
+# NOT applied to SAML-D (decided 22 Oct 2026): its amounts are on one common
+# scale, treated as GBP, whatever the payment currency. Kept, loaded and
+# tested for IBM HI-Small, whose amounts may be in real currency units.
 #
 # Source: HMRC monthly exchange rates, published on the GOV.UK Trade Tariff.
 # Licence: Open Government Licence v3.0 (confirmed by Vivek on 22 Oct 2026
 # from the Trade Tariff exchange rates page footer).
 # Limitation: one rate per currency per month (HMRC takes it at midday on the
-# day before publication), so amount_gbp is approximate within a month.
+# day before publication), so a converted amount is approximate within a month.
 # Rates are never typed in by hand: the loader saves HMRC's files unchanged in
 # data/raw/fx/ and reads them from there.
 

@@ -6,11 +6,11 @@ sources:
     schema: raw
     tables:
       - name: saml_d
-        description: SAML-D transactions, every column text. Includes the suspicious label — only staging/evaluation may read the label columns.
+        description: SAML-D transactions, every column text. Includes the suspicious label — only the evaluation model may read the label columns.
       - name: kyc_customers
         description: SYNTHETIC KYC customers (one per sending account), typed.
       - name: fx_rates_hmrc
-        description: HMRC monthly exchange rates, currency units per £1 (OGL v3.0).
+        description: HMRC monthly exchange rates, currency units per £1 (OGL v3.0). Not applied to SAML-D.
       - name: load_log
         description: One row per load, with row counts for reconciliation.
 

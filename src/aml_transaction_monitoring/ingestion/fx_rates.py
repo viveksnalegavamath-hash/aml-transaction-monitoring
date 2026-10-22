@@ -1,7 +1,7 @@
 """Download and load HMRC monthly exchange rates into `raw.fx_rates_hmrc`.
 
-Used to convert SAML-D amounts (in the payment currency) into GBP. HMRC
-publishes one rate per currency per month, as currency units per £1, under
+Not applied to SAML-D, whose amounts are already on one scale (treated as
+GBP); kept for IBM HI-Small. HMRC publishes one rate per currency per month, as currency units per £1, under
 the Open Government Licence v3.0. Settings: `config/fx_rates.yaml`.
 
 Each monthly CSV is saved unchanged into `data/raw/fx/` (once; an existing

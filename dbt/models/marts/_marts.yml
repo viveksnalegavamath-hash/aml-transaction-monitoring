@@ -1,0 +1,85 @@
+version: 2
+
+models:
+  - name: dim_country
+    description: One row per country. FATF status and internal WGI rating in separate columns, with list date and sources.
+    data_tests:
+      - row_count_matches_load_log:
+          arguments:
+            table_name: ref.country_risk
+    columns:
+      - name: iso_code
+        data_tests: [not_null, unique]
+      - name: fatf_status
+        data_tests: [not_null]
+
+  - name: dim_customer
+    description: One row per SYNTHETIC customer, with the risk of their nationality. No customer risk rating yet.
+    data_tests:
+      - row_count_matches_load_log:
+          arguments:
+            table_name: raw.kyc_customers
+    columns:
+      - name: customer_id
+        data_tests: [not_null, unique]
+      - name: nationality_country
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_country')
+                field: iso_code
+      - name: nationality_fatf_status
+        data_tests: [not_null]
+      - name: nationality_internal_rating
+        description: Every KYC nationality is rated (enforced by the country-risk hard stop).
+        data_tests: [not_null]
+
+  - name: fct_transactions
+    description: >
+      One row per SAML-D transaction, enriched with GBP amount, country risk and
+      customer flags. No suspicious label (see evaluation.eval_transaction_labels).
+    data_tests:
+      - row_count_matches_load_log:
+          arguments:
+            table_name: raw.saml_d
+    columns:
+      - name: transaction_id
+        data_tests: [not_null, unique]
+      - name: amount_gbp
+        description: >
+          Equal to the source Amount. SAML-D amounts are on one common scale,
+          treated as GBP, whatever the payment currency (see data/README.md and
+          test saml_d_amounts_on_common_scale). No FX conversion.
+        data_tests: [not_null, is_positive]
+      - name: payment_currency
+        description: Currency the payment was made in (descriptive; amounts are not in this currency's units).
+      - name: sender_country
+        data_tests: &in_dim_country
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_country')
+                field: iso_code
+      - name: receiver_country
+        data_tests: *in_dim_country
+      - name: sender_country_fatf_status
+        data_tests: [not_null]
+      - name: receiver_country_fatf_status
+        data_tests: [not_null]
+      - name: sender_country_internal_rating
+        data_tests: [not_null]
+      - name: receiver_country_internal_rating
+        data_tests: [not_null]
+      - name: sender_is_customer
+        description: Always true by design (customers = every sending account).
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [true]
+                quote: false
+      - name: receiver_is_customer
+        description: >
+          Handle with care in features: true for 92.5% of suspicious vs 33.2% of
+          normal transactions, an artefact of how SAML-D generates typologies.
+        data_tests: [not_null]

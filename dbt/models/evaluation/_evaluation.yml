@@ -1,0 +1,27 @@
+version: 2
+
+models:
+  - name: eval_transaction_labels
+    description: >
+      EVALUATION ONLY: the suspicious label and typology per transaction. Never
+      read by rules, features or models; joined only to measure precision and recall.
+    data_tests:
+      - row_count_matches_load_log:
+          arguments:
+            table_name: raw.saml_d
+    columns:
+      - name: transaction_id
+        data_tests:
+          - not_null
+          - unique
+          - relationships:
+              arguments:
+                to: ref('fct_transactions')
+                field: transaction_id
+      - name: is_laundering
+        data_tests: [not_null]
+      - name: typology
+        description: Standardised typology name (seed saml_d_typologies). Not null = every raw name is mapped.
+        data_tests: [not_null]
+      - name: is_suspicious_typology
+        data_tests: [not_null]

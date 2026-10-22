@@ -1,4 +1,5 @@
 -- One HMRC rate per currency per month (currency units per £1).
+-- Not applied to SAML-D: its amounts are already on one scale (treated as GBP).
 -- HMRC lists some currencies under several countries (AED: Abu Dhabi, Dubai,
 -- UAE). DISTINCT keeps one row when their rates agree; if they ever disagreed,
 -- two rows would remain and the uniqueness test on (currency, month) fails.

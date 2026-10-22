@@ -23,7 +23,7 @@ models:
       - name: receiver_account
         data_tests: [not_null]
       - name: amount
-        description: In the payment currency, as in the source.
+        description: As in the source. On one common scale for every currency, treated as GBP (see data/README.md).
         data_tests:
           - not_null
           - is_positive
@@ -115,7 +115,7 @@ models:
         data_tests: [not_null]
 
   - name: stg_fx_rates
-    description: One HMRC rate per currency per month, currency units per £1.
+    description: One HMRC rate per currency per month, currency units per £1. Loaded and tested but NOT applied to SAML-D (amounts are already on one scale); kept for IBM HI-Small.
     data_tests:
       # Fails if one currency had two different rates in the same month.
       - unique:

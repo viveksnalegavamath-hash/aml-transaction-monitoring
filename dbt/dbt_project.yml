@@ -32,3 +32,6 @@ models:
 seeds:
   aml_transaction_monitoring:
     +schema: staging
+    evaluation:
+      # Typology names are part of the label: kept with the evaluation model.
+      +schema: evaluation
