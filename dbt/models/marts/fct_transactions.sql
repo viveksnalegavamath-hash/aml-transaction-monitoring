@@ -1,8 +1,8 @@
 {{ config(
     indexes=[
         {'columns': ['transaction_id'], 'unique': true},
-        {'columns': ['sender_account']},
-        {'columns': ['receiver_account']},
+        {'columns': ['sender_account', 'transaction_ts']},
+        {'columns': ['receiver_account', 'transaction_ts']},
         {'columns': ['transaction_ts']},
     ]
 ) }}

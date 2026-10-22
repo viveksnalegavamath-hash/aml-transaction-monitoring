@@ -1,0 +1,42 @@
+# Rule spec. Thresholds live here, never in code. The logic is in
+# src/aml_transaction_monitoring/rules/sql/R04.sql, which receives every value
+# below as a bound query parameter.
+
+id: R04
+name: Rapid pass-through
+version: 1
+typology: >
+  Pass-through (deposit-send, scatter-gather, gather-scatter): money arrives
+  in an account and most of it leaves again almost at once, so the account is
+  a conduit rather than a place where the customer keeps funds.
+logic: >
+  Alert the account when an outgoing payment means that, within the last
+  `window_hours` hours, it received at least `min_inflow_gbp` and, after the
+  first of those inflows, sent out at least `min_outflow_ratio` of it.
+sql: R04.sql
+parameters:
+  min_inflow_gbp: 10000
+  min_outflow_ratio: 0.8
+  window_hours: 48
+suppression_days: 7
+reason: >
+  Received £{in_gbp:,.2f} in {n_in} payments and sent out £{out_gbp:,.2f}
+  ({out_ratio:.0%}) in {n_out} payments within {window_hours} hours (rule:
+  inflows of at least £{min_inflow_gbp:,.0f}, at least
+  {min_outflow_ratio:.0%} sent out).
+rationale: >
+  Scrutiny must test whether activity fits the customer's profile (MLR 2017
+  reg. 28(11)), with rules tailored to typologies (FCA FCG 3.2). Funds that
+  pass straight through an account, with little left behind, are a core
+  layering red flag and typical of money-mule accounts.
+expected_weekly_alerts: null  # set from the baseline run (step 6)
+owner: Vivek Nalegavamath (AML rules owner, portfolio project)
+last_tuned: null
+change_log:
+  - date: 2026-10-22
+    version: 1
+    change: Created with the project plan's starting values.
+    reason: >
+      Not yet tuned (tuning uses Oct 2022 – May 2023 only). Outflows count
+      only from the first inflow in the window, so money must come in before
+      it goes out.

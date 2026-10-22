@@ -1,0 +1,35 @@
+# Rule spec. Thresholds live here, never in code. The logic is in
+# src/aml_transaction_monitoring/rules/sql/R03.sql, which receives every value
+# below as a bound query parameter.
+
+id: R03
+name: One-to-many
+version: 1
+typology: >
+  Dispersal (fan-out, layered fan-out): one account pays many different
+  accounts in a short time, often to spread funds out and break the trail.
+logic: >
+  Alert the sending account when, within `window_days` days, it pays at least
+  `min_receivers` different accounts.
+sql: R03.sql
+parameters:
+  min_receivers: 10
+  window_days: 7
+suppression_days: 7
+reason: >
+  Paid £{total_gbp:,.2f} to {n_receivers} different accounts in
+  {n_transactions} payments within {window_days} days (rule: at least
+  {min_receivers} receivers).
+rationale: >
+  Scrutiny must test whether activity fits the customer's profile (MLR 2017
+  reg. 28(11)), with rules tailored to typologies (FCA FCG 3.2). One account
+  suddenly paying many unrelated accounts is a common way to disperse funds
+  across mules before they are withdrawn or moved on.
+expected_weekly_alerts: null  # set from the baseline run (step 6)
+owner: Vivek Nalegavamath (AML rules owner, portfolio project)
+last_tuned: null
+change_log:
+  - date: 2026-10-22
+    version: 1
+    change: Created with the project plan's starting values (no minimum total).
+    reason: Not yet tuned (tuning uses Oct 2022 – May 2023 only).
