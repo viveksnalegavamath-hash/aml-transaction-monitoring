@@ -1,0 +1,52 @@
+# Rule spec. Thresholds live here, never in code. The logic is in
+# src/aml_transaction_monitoring/rules/sql/R05.sql, which receives every value
+# below as a bound query parameter.
+
+id: R05
+name: High-risk jurisdiction
+version: 1
+typology: >
+  Cross-border exposure: money sent to, or received from, jurisdictions with
+  weak anti-money-laundering controls, where funds are harder to trace and
+  criminal proceeds are more likely to be moved.
+logic: >
+  Per payment. Alert the sending account for any payment to a FATF
+  call-for-action country, or a payment of at least `min_grey_list_gbp` to a
+  FATF increased-monitoring (grey-list) country. Alert the sending account for
+  a payment of at least `min_high_rating_gbp` to a country with internal rating
+  high, and the receiving account for one from such a country.
+sql: R05.sql
+parameters:
+  min_grey_list_gbp: 5000
+  min_high_rating_gbp: 5000
+suppression_days: 7
+reason: >
+  Payment of £{amount_gbp:,.2f} {direction} {country}: {matched} (rule: any
+  payment to a FATF call-for-action country; at least
+  £{min_grey_list_gbp:,.0f} to a FATF increased-monitoring country; at least
+  £{min_high_rating_gbp:,.0f} to or from a country with internal rating high).
+rationale: >
+  Enhanced due diligence is required for business relationships and
+  transactions involving high-risk third countries (MLR 2017 reg. 33(1)(b)),
+  and geography is a risk factor firms must assess (reg. 18). FATF's
+  call-for-action and increased-monitoring lists are the standard reference;
+  the internal rating (World Bank governance indicators, ref.country_risk)
+  covers countries FATF does not list. Rules tailored to the firm's risks:
+  FCA FCG 3.2.
+expected_weekly_alerts: null  # set from the baseline run (step 6)
+owner: Vivek Nalegavamath (AML rules owner, portfolio project)
+last_tuned: null
+change_log:
+  - date: 2026-10-22
+    version: 1
+    change: >
+      Created with the project plan's FATF clauses (any payment to a
+      call-for-action country; at least £5,000 to a grey-list country), plus a
+      new clause: at least £5,000 to or from a country with internal rating
+      high.
+    reason: >
+      None of SAML-D's 18 countries is on a FATF list (June 2026), so the plan's
+      clauses alone can never fire on this data. They are kept because they are
+      correct policy and matter for other data. The internal-rating clause
+      makes the rule testable here (Pakistan, Mexico, Nigeria and Turkey are
+      rated high). Not yet tuned (tuning uses Oct 2022 – May 2023 only).

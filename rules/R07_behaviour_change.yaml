@@ -1,0 +1,55 @@
+# Rule spec. Thresholds live here, never in code. The logic is in
+# src/aml_transaction_monitoring/rules/sql/R07.sql, which receives every value
+# below as a bound query parameter.
+
+id: R07
+name: Behaviour change
+version: 1
+typology: >
+  Behaviour change: an account's activity suddenly departs from its own past,
+  either a sharp rise in the money moving through it or a long-quiet account
+  that comes back to life (for example an account taken over or sold to a
+  money-mule network).
+logic: >
+  Looks at all the account's activity, money sent and received. Alert when a
+  transaction (a) brings the account's volume over the last `spike_days` days
+  above `spike_multiple` times its average volume per `spike_days` days over
+  the `baseline_days` days before that, or (b) is the account's first
+  activity after at least `dormant_days` days with none. An account's first
+  transaction in the data is new, not dormant. The account must have been in
+  the data for at least `min_history_days` days; for (a), the whole baseline
+  period must also fall after its first transaction, and the baseline must
+  be above zero.
+sql: R07.sql
+parameters:
+  spike_days: 30
+  baseline_days: 90
+  spike_multiple: 5
+  dormant_days: 90
+  min_history_days: 90
+suppression_days: 7
+reason: >
+  Behaviour change: {finding} (rule: {spike_days}-day volume more than
+  {spike_multiple} times the average {spike_days}-day volume of the previous
+  {baseline_days} days, or first activity after {dormant_days}+ days dormant;
+  account at least {min_history_days} days in the data).
+rationale: >
+  Firms must scrutinise transactions for consistency with the customer's
+  profile (MLR 2017 reg. 28(11)) and apply enhanced due diligence where there
+  is an unusual pattern of transactions (reg. 33(1)(f)). Rules tailored to the
+  firm's risks: FCA FCG 3.2. Sudden reactivation of dormant accounts and
+  sharp changes in turnover are common money-mule indicators.
+expected_weekly_alerts: null  # set from the baseline run (step 6)
+owner: Vivek Nalegavamath (AML rules owner, portfolio project)
+last_tuned: null
+change_log:
+  - date: 2026-10-22
+    version: 1
+    change: >
+      Created with the project plan's starting values (30-day volume more than
+      5 times the prior 90-day monthly average, or dormant 90+ days then
+      active).
+    reason: >
+      Not yet tuned (tuning uses Oct 2022 – May 2023 only). History is
+      measured from the account's first transaction in the data, not the
+      synthetic KYC onboarding date. Volume counts money sent and received.

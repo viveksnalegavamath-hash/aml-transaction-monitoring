@@ -1,0 +1,50 @@
+# Rule spec. Thresholds live here, never in code. The logic is in
+# src/aml_transaction_monitoring/rules/sql/R06.sql, which receives every value
+# below as a bound query parameter.
+
+id: R06
+name: Large vs profile
+version: 1
+typology: >
+  Single large transaction: one payment far larger than the account usually
+  makes, out of line with what the customer's past activity would lead the
+  bank to expect.
+logic: >
+  Per payment sent. Alert the sending account when a payment is more than
+  `min_amount_gbp` and more than `multiple` times the average of the account's
+  own payments sent in the previous `baseline_days` days (the payment itself
+  excluded), based on at least `min_baseline_payments` payments. The account
+  must have been in the data (first payment sent or received) for at least
+  `min_history_days` days, so new accounts have no profile to compare with.
+sql: R06.sql
+parameters:
+  multiple: 3
+  min_amount_gbp: 10000
+  baseline_days: 90
+  min_baseline_payments: 1
+  min_history_days: 90
+suppression_days: 7
+reason: >
+  Sent £{amount_gbp:,.2f}, {ratio:,.1f} times the account's average payment of
+  £{baseline_avg_gbp:,.2f} over the previous {baseline_days} days
+  ({n_baseline} payments) (rule: more than {multiple} times the
+  {baseline_days}-day average and more than £{min_amount_gbp:,.0f}; account
+  at least {min_history_days} days in the data).
+rationale: >
+  Scrutiny must test whether transactions are consistent with the firm's
+  knowledge of the customer and their risk profile (MLR 2017 reg. 28(11));
+  unusually large transactions need enhanced due diligence (reg. 33(1)(f)). Rules
+  tailored to the firm's risks: FCA FCG 3.2. The account's own past is the
+  profile, as no declared expected activity is available for every account.
+expected_weekly_alerts: null  # set from the baseline run (step 6)
+owner: Vivek Nalegavamath (AML rules owner, portfolio project)
+last_tuned: null
+change_log:
+  - date: 2026-10-22
+    version: 1
+    change: Created with the project plan's starting values (3 times the 90-day average, more than £10,000).
+    reason: >
+      Not yet tuned (tuning uses Oct 2022 – May 2023 only). History is
+      measured from the account's first transaction in the data, not the
+      synthetic KYC onboarding date. A mean is used as the plan states; a
+      median may suit heavy-tailed amounts better (to test in step 7).
