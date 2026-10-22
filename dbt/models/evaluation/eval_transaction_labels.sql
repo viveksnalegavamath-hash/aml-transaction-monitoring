@@ -13,3 +13,5 @@ select
 from {{ source('raw', 'saml_d') }} as s
 left join {{ ref('saml_d_typologies') }} as typology
     on typology.laundering_type = s.laundering_type
+-- Same dev-sample filter as stg_saml_d (empty in a normal build).
+{{ dev_sample_filter('s.sender_account', 's.receiver_account') }}

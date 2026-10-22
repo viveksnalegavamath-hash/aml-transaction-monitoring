@@ -44,6 +44,16 @@ def test_models_never_read_the_label(folder: str) -> None:
         assert match is None, f"{path.name} reads the label: {match.group(0)!r}"
 
 
+def test_macros_never_read_the_label() -> None:
+    # Macros (e.g. the dev-sample rule) are shared by every model.
+    files = sorted((DBT_MODELS.parent / "macros").glob("*.sql"))
+    assert files
+    for path in files:
+        code = strip_comments(path.read_text(encoding="utf-8"))
+        match = LABEL_REFERENCES.search(code)
+        assert match is None, f"{path.name} reads the label: {match.group(0)!r}"
+
+
 def test_evaluation_model_does_read_the_label() -> None:
     code = " ".join(
         strip_comments(p.read_text(encoding="utf-8")) for p in model_files("evaluation")

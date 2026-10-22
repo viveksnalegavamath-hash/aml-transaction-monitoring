@@ -37,7 +37,7 @@ A company-grade anti-money-laundering (AML) transaction monitoring system built 
 - Out-of-sample test: IBM AMLworld HI-Small — Kaggle `ealtman2019/ibm-transactions-for-anti-money-laundering-aml`, file `HI-Small_Trans.csv` only.
 - Reference: UK Sanctions List CSV (FCDO), FATF lists (June 2026), OpenSanctions (non-commercial licence).
 - Synthetic KYC customer table generated with Faker, fixed seed, clearly labelled synthetic.
-- Raw files live in `data/raw/` (git-ignored). Never commit data. Develop on a 10% sample.
+- Raw files live in `data/raw/` (git-ignored). Never commit data. Develop on the 10% account sample (≈19% of rows): `dbt build --vars '{dev_sample: true}'` (writes `*_sample` schemas).
 
 ## Repository layout (target)
 
@@ -92,3 +92,4 @@ data/raw/         downloaded data (git-ignored)
 7. Reproducible: fixed random seeds, pinned versions, one command per step.
 8. Small commits with clear messages, e.g. "Add R04 rapid pass-through rule".
 9. Report precision, recall and PR-AUC — never accuracy.
+10. All reported results come from the full data only. The dev sample is for development speed, never for reported numbers.

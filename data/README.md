@@ -127,6 +127,26 @@ Kept for IBM HI-Small (Phase 3), whose amounts may be in real currency units —
 - Some currencies are listed under several countries (AED for Abu Dhabi, Dubai and UAE; USD for USA, Liberia and others); every such duplicate carries the same rate in the same month — checked on load, and tested again in dbt.
 - **Limitation: one rate per currency per month** (taken by HMRC at midday on the day before publication). Within a month every transaction uses that rate, so a converted amount can differ from the day's actual rate. This matters most for currencies that moved sharply in the period: NGN went from 494 to 1,020 per £1, TRY from 21 to 35, PKR from 247 to 366.
 
+## Dev sample: 10% account sample (≈19% of rows)
+
+**For development speed only. All reported results come from the full data.**
+
+- **How accounts are chosen:** an account is in the sample when `int(md5(account_id)[:8], 16) % 100 < 10` — deterministic, no randomness, and it sees only the account ID, never the label. Same rule in SQL (dbt macro `in_dev_sample`) and Python (checked identical on 2,000 accounts).
+- **Which transactions are kept:** every transaction where the sender **or** the receiver is a sampled account, over the full date range — so sampled accounts have complete histories in both directions, and 90-day windows and the time-based split still work.
+- **Switch:** `dbt build --vars '{dev_sample: true}'`. A plain `dbt build` always uses all 9.5M rows. The sample builds into `staging_sample`, `marts_sample` and `evaluation_sample`, never over the full tables. `dim_customer` and `dim_country` are not sampled.
+- **Caveat:** counterparties outside the sample have only the transactions that touch a sampled account, so their histories are partial. Judge rules and features on sampled accounts only (macro `in_dev_sample`).
+
+Check ([`sql/profiling/dev_sample_check.sql`](../sql/profiling/dev_sample_check.sql), evaluation only — the label describes the sample, it never chooses it):
+
+| Dataset | Transactions | % of rows | Senders | Suspicious | Suspicious rate | Typologies | Dates |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Full data | 9,504,852 | 100.0 | 292,715 | 9,873 | 0.104% | 28 | 2022-10-07 to 2023-08-23 |
+| 10% account sample | 1,810,192 | 19.0 | 70,447 | 1,791 | 0.099% | 28 | 2022-10-07 to 2023-08-23 |
+
+70,447 senders appear in the sample, but only about 29,000 (9.95% of all senders) are sampled accounts; the rest are outside accounts paying a sampled receiver. The suspicious rate stays close to the full data's and every typology is present.
+
+Build times: full `dbt build` ~6¼ min; sample **~1⅓ min** (78 s). In sample mode only, `stg_saml_d` is a table (1,810,192 rows) instead of a view, so its tests no longer re-scan all 9.5M raw rows; in a normal build it stays a view (checked in the database).
+
 ## UK Sanctions List notes
 
 - Line 1 is `Report Date: …`; the loader stores it in `raw.load_log.source_note` as the list version.

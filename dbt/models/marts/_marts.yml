@@ -39,6 +39,10 @@ models:
     description: >
       One row per SAML-D transaction, enriched with GBP amount, country risk and
       customer flags. No suspicious label (see evaluation.eval_transaction_labels).
+      marts_sample.fct_transactions holds the 10% account sample (≈19% of rows),
+      for development speed only: all reported results come from the full data.
+      In the sample only sampled accounts (macro in_dev_sample) have complete
+      histories; judge rules and features on those accounts.
     data_tests:
       - row_count_matches_load_log:
           arguments:

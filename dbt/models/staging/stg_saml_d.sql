@@ -1,3 +1,10 @@
+{#
+    A view in a normal build (like all staging). A table in a dev-sample
+    build only: otherwise every test on this model re-scans and re-hashes all
+    9.5M raw rows to find the sample.
+#}
+{{ config(materialized='table' if var('dev_sample') else 'view') }}
+
 -- SAML-D transactions, cleaned and typed. One row per raw row.
 -- The suspicious label (is_laundering, laundering_type) is deliberately NOT
 -- selected: it lives only in the evaluation model.
@@ -7,6 +14,9 @@
 with source as (
 
     select * from {{ source('raw', 'saml_d') }}
+    -- Empty in a normal build; in a dev-sample build keeps the
+    -- 10% account sample (≈19% of rows). See macros/dev_sample.sql.
+    {{ dev_sample_filter('sender_account', 'receiver_account') }}
 
 ),
 

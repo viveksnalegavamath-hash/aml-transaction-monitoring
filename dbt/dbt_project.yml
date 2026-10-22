@@ -12,6 +12,16 @@ test-paths: ["tests"]
 macro-paths: ["macros"]
 clean-targets: ["target", "logs"]
 
+vars:
+  # Dev sample: "10% account sample (≈19% of rows)". Off by default, so a plain
+  # `dbt build` always uses all 9.5M rows. Sample build (development speed only;
+  # all reported results come from the full data):
+  #   dbt build --vars '{dev_sample: true}'
+  # It writes to staging_sample, marts_sample, evaluation_sample, never over
+  # the full tables.
+  dev_sample: false
+  dev_sample_percent: 10
+
 flags:
   # No anonymous usage data sent to dbt Labs.
   send_anonymous_usage_stats: false
