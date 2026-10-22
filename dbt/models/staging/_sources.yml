@@ -1,0 +1,24 @@
+version: 2
+
+sources:
+  - name: raw
+    description: Data loaded unchanged by the Python loaders in src/aml_transaction_monitoring/ingestion.
+    schema: raw
+    tables:
+      - name: saml_d
+        description: SAML-D transactions, every column text. Includes the suspicious label — only staging/evaluation may read the label columns.
+      - name: kyc_customers
+        description: SYNTHETIC KYC customers (one per sending account), typed.
+      - name: fx_rates_hmrc
+        description: HMRC monthly exchange rates, currency units per £1 (OGL v3.0).
+      - name: load_log
+        description: One row per load, with row counts for reconciliation.
+
+  - name: ref
+    description: Reference tables built by the country-risk loader.
+    schema: ref
+    tables:
+      - name: country_risk
+        description: One row per country, FATF status and internal WGI rating.
+      - name: country_name_map
+        description: Country names (SAML-D, FATF) to ISO code, copied from config/country_risk.yaml.

@@ -1,0 +1,128 @@
+version: 2
+
+models:
+  - name: stg_saml_d
+    description: >
+      SAML-D transactions, cleaned and typed, one row per raw row. No suspicious
+      label: that is only in the evaluation schema.
+    data_tests:
+      - row_count_matches_load_log:
+          arguments:
+            table_name: raw.saml_d
+    columns:
+      - name: transaction_id
+        description: MD5 of every non-label column (macro saml_d_transaction_id).
+        data_tests: [not_null, unique]
+      - name: transaction_ts
+        description: Date and Time combined. No time zone in the source.
+        data_tests: [not_null]
+      - name: transaction_date
+        data_tests: [not_null]
+      - name: sender_account
+        data_tests: [not_null]
+      - name: receiver_account
+        data_tests: [not_null]
+      - name: amount
+        description: In the payment currency, as in the source.
+        data_tests:
+          - not_null
+          - is_positive
+      - name: payment_currency
+        description: ISO 4217 code, via seed saml_d_currencies.
+        data_tests: &currency_tests
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [GBP, EUR, USD, CHF, JPY, TRY, INR, PKR, NGN, AED, MAD, MXN, ALL]
+      - name: received_currency
+        data_tests: *currency_tests
+      - name: sender_country
+        description: ISO 3166 code, via ref.country_name_map.
+        data_tests: &country_tests
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_country_risk')
+                field: iso_code
+      - name: receiver_country
+        data_tests: *country_tests
+      - name: payment_type
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [ach, cash_deposit, cash_withdrawal, cheque, credit_card, cross_border, debit_card]
+      - name: is_cross_border
+        description: True when sender and receiver countries differ.
+        data_tests: [not_null]
+      - name: payment_type_disagrees
+        description: Countries differ but payment_type is not cross_border, or the reverse (417 rows at profiling).
+        data_tests: [not_null]
+
+  - name: stg_kyc_customers
+    description: SYNTHETIC KYC customers, one per sending account.
+    data_tests:
+      - row_count_matches_load_log:
+          arguments:
+            table_name: raw.kyc_customers
+    columns:
+      - name: customer_id
+        data_tests: [not_null, unique]
+      - name: customer_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [individual, business]
+      - name: nationality_country
+        description: Nationality (individuals) or country of incorporation (businesses), ISO 3166.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_country_risk')
+                field: iso_code
+      - name: is_synthetic
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [true]
+                quote: false
+
+  - name: stg_country_risk
+    description: One row per country, FATF status and internal WGI rating in separate columns.
+    data_tests:
+      - row_count_matches_load_log:
+          arguments:
+            table_name: ref.country_risk
+    columns:
+      - name: iso_code
+        data_tests: [not_null, unique]
+      - name: fatf_status
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [call_for_action, increased_monitoring, not_listed]
+      - name: internal_rating
+        description: High / medium / low (thirds of the WGI average). Empty when WGI cannot rate the country.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [high, medium, low]
+      - name: fatf_list_date
+        data_tests: [not_null]
+      - name: fatf_source
+        data_tests: [not_null]
+
+  - name: stg_fx_rates
+    description: One HMRC rate per currency per month, currency units per £1.
+    data_tests:
+      # Fails if one currency had two different rates in the same month.
+      - unique:
+          arguments:
+            column_name: "currency_code || ' ' || month_start"
+    columns:
+      - name: currency_code
+        data_tests: [not_null]
+      - name: units_per_gbp
+        data_tests: [not_null, is_positive]
