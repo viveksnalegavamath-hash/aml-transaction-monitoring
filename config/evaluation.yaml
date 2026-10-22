@@ -15,5 +15,14 @@ periods:
     start: 2023-06-01
     end: 2023-08-23
 
+# Detection window (decided 22 Oct 2026), the same for every rule, so results
+# do not depend on which transactions a rule links to its alerts:
+# - a suspicious transaction is caught when the rule alerted its sender or
+#   receiver at the time of the transaction or up to detection_days after it;
+# - an alert is a true alert when its account had a suspicious transaction
+#   (sent or received) in the detection_days up to the alert.
+# 30 = the longest look-back of any rule (R07).
+detection_days: 30
+
 # Reports from the full data only are written here; sample runs print only.
 output_dir: docs/results

@@ -35,6 +35,20 @@ models:
         description: Every KYC nationality is rated (enforced by the country-risk hard stop).
         data_tests: [not_null]
 
+  - name: dim_account
+    description: >
+      One row per account in fct_transactions (sender or receiver): first and
+      last transaction in the data, and in_dev_sample. The rules evaluation
+      in sample mode counts only accounts with in_dev_sample true, the only
+      ones with complete histories in the sample.
+    columns:
+      - name: account_id
+        data_tests: [not_null, unique]
+      - name: first_seen_ts
+        data_tests: [not_null]
+      - name: in_dev_sample
+        data_tests: [not_null]
+
   - name: fct_transactions
     description: >
       One row per SAML-D transaction, enriched with GBP amount, country risk and
