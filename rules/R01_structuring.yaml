@@ -1,0 +1,38 @@
+# Rule spec. Thresholds live here, never in code. The logic is in
+# src/aml_transaction_monitoring/rules/sql/R01.sql, which receives every value
+# below as a bound query parameter.
+
+id: R01
+name: Structuring
+version: 1
+typology: >
+  Structuring: cash paid in as several deposits, each kept just under a
+  round threshold (here £10,000) to avoid attention.
+logic: >
+  Alert the account receiving the cash when it gets at least `min_deposits`
+  cash deposits, each between `min_amount_gbp` and `max_amount_gbp`, within
+  `window_days` days.
+sql: R01.sql
+parameters:
+  min_amount_gbp: 8000
+  max_amount_gbp: 9999.99
+  min_deposits: 3
+  window_days: 7
+# After an alert, no new R01 alert for the same account for this many days.
+suppression_days: 7
+reason: >
+  {n_deposits} cash deposits of £{min_amount_gbp:,.0f}–£{max_amount_gbp:,.2f}
+  within {window_days} days, totalling £{total_gbp:,.2f}.
+rationale: >
+  Firms must scrutinise transactions for consistency with what they know of
+  the customer (MLR 2017 reg. 28(11)); monitoring rules should be tailored to
+  typologies and calibrated (FCA FCG 3.2). Repeated cash deposits just below a
+  round threshold are a classic structuring red flag.
+expected_weekly_alerts: null  # set from the baseline run (step 6)
+owner: Vivek Nalegavamath (AML rules owner, portfolio project)
+last_tuned: null
+change_log:
+  - date: 2026-10-22
+    version: 1
+    change: Created with the project plan's starting values.
+    reason: Textbook structuring band; not yet tuned (tuning uses Oct 2022 – May 2023 only).
