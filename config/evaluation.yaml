@@ -1,0 +1,19 @@
+# Evaluation periods (decided 22 Oct 2026). Shared by the rules evaluation
+# (Phase 2) and the ML test period (Phase 3), so they compare like for like.
+#
+# - tuning: thresholds may be tuned on these months.
+# - holdout: untouched until the final report; the headline results.
+# An alert belongs to the period of its alert date. Rules may look back into
+# earlier months for history. A suspicious transaction belongs to the period
+# of its transaction date.
+
+periods:
+  tuning:
+    start: 2022-10-07
+    end: 2023-05-31
+  holdout:
+    start: 2023-06-01
+    end: 2023-08-23
+
+# Reports from the full data only are written here; sample runs print only.
+output_dir: docs/results
