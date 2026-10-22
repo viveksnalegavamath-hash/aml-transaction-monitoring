@@ -13,6 +13,7 @@ from aml_transaction_monitoring.ingestion.country_risk import (
     build_country_risk,
     find_coverage_gaps,
     load_config,
+    name_map_rows,
     name_to_iso,
     read_fatf_pages,
     validate_config,
@@ -396,6 +397,29 @@ def test_coverage_needs_a_rating_for_customer_countries_only(
         "KYC nationality (VG) has no internal rating"
     ]
     assert find_coverage_gaps(built, [], [], ["VG"], names) == []
+
+
+# --- Country name map (for dbt) -----------------------------------------------------
+
+SAML_D_LOCATIONS = [
+    "UK", "Pakistan", "Nigeria", "Germany", "France", "Japan", "Morocco", "Austria",
+    "Spain", "Switzerland", "Turkey", "Albania", "Mexico", "UAE", "USA", "Italy",
+    "India", "Netherlands",
+]  # fmt: skip
+
+
+def test_name_map_has_unique_normalised_keys(config: dict) -> None:
+    rows = name_map_rows(config)
+    keys = [key for key, _, _ in rows]
+    assert len(keys) == len(set(keys)) == len(config["country_names"])
+    assert all(key == normalise_name(name) for key, name, _ in rows)
+
+
+def test_name_map_covers_every_saml_d_location(config: dict) -> None:
+    mapped = {key: iso for key, _, iso in name_map_rows(config)}
+    assert mapped[normalise_name("UK")] == "GB"
+    assert mapped[normalise_name("UAE")] == "AE"
+    assert all(normalise_name(loc) in mapped for loc in SAML_D_LOCATIONS)
 
 
 # --- Settings ----------------------------------------------------------------------

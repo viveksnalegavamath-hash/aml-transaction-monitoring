@@ -1,0 +1,34 @@
+# dbt project: raw data -> tested staging views -> mart tables.
+# Run from this folder: dbt build
+
+name: aml_transaction_monitoring
+version: "1.0.0"
+config-version: 2
+profile: aml_transaction_monitoring
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+clean-targets: ["target", "logs"]
+
+flags:
+  # No anonymous usage data sent to dbt Labs.
+  send_anonymous_usage_stats: false
+
+models:
+  aml_transaction_monitoring:
+    staging:
+      +schema: staging
+      +materialized: view
+    marts:
+      +schema: marts
+      +materialized: table
+    evaluation:
+      # Suspicious label and typology only. Never read by rules or features.
+      +schema: evaluation
+      +materialized: table
+
+seeds:
+  aml_transaction_monitoring:
+    +schema: staging

@@ -18,6 +18,12 @@ __pycache__/
 .DS_Store
 mlruns/
 
+# dbt build output
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+dbt/.user.yml
+
 # Private Claude Code files
 CLAUDE.local.md
 .claude/settings.local.json

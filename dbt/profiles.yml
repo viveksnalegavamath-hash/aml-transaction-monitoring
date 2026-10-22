@@ -1,0 +1,17 @@
+# Connection settings. No secrets here: every credential comes from an
+# environment variable. dbt 1.12 loads them from the project's .env itself
+# (it searches upward from the folder it is run in); shell variables win.
+# Host is 127.0.0.1, never "localhost" (that reaches a different PostgreSQL on this Mac).
+
+aml_transaction_monitoring:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: 127.0.0.1
+      port: "{{ env_var('POSTGRES_PORT') | as_number }}"
+      dbname: "{{ env_var('POSTGRES_DB') }}"
+      user: "{{ env_var('POSTGRES_USER') }}"
+      password: "{{ env_var('POSTGRES_PASSWORD') }}"
+      schema: dbt_dev  # only used if a model has no schema of its own
+      threads: 4

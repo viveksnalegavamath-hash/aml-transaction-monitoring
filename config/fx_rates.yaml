@@ -1,0 +1,18 @@
+# Settings for the FX rates used to compute amount_gbp (raw.fx_rates_hmrc).
+#
+# Source: HMRC monthly exchange rates, published on the GOV.UK Trade Tariff.
+# Licence: Open Government Licence v3.0 (confirmed by Vivek on 22 Oct 2026
+# from the Trade Tariff exchange rates page footer).
+# Limitation: one rate per currency per month (HMRC takes it at midday on the
+# day before publication), so amount_gbp is approximate within a month.
+# Rates are never typed in by hand: the loader saves HMRC's files unchanged in
+# data/raw/fx/ and reads them from there.
+
+version: 1
+source_page: https://www.trade-tariff.service.gov.uk/exchange_rates
+file_url: https://www.trade-tariff.service.gov.uk/api/v2/exchange_rates/files/monthly_csv_{month}.csv
+licence: Open Government Licence v3.0
+
+# Months to load (inclusive), covering every SAML-D transaction (2022-10-07 to 2023-08-23).
+first_month: "2022-10"
+last_month: "2023-08"

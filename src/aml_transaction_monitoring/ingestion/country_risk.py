@@ -8,7 +8,8 @@ One row per country, with two separate views of risk in separate columns:
   (high / medium / low risk).
 
 Every row carries the FATF list date and source, and the WGI version and
-source. Hard stop: if any SAML-D bank location, KYC nationality or FATF
+source. The same run writes `ref.country_name_map` (SAML-D and FATF country
+names -> ISO code) from the settings, for dbt staging to join on. Hard stop: if any SAML-D bank location, KYC nationality or FATF
 jurisdiction has no row (or a SAML-D or KYC country has no internal rating),
 the whole load is rolled back with a list of the gaps.
 
@@ -24,6 +25,7 @@ from typing import Any
 
 import psycopg
 import yaml
+from psycopg import sql
 
 from aml_transaction_monitoring.db import get_connection
 from aml_transaction_monitoring.ingestion.fatf_lists import (
@@ -130,6 +132,20 @@ CREATE_COUNTRY_RISK_SQL = """
     )
 """
 
+# Country names (SAML-D, FATF) -> ISO code, copied from the settings so dbt
+# can join on it; the YAML stays the only place the mapping is written.
+CREATE_NAME_MAP_SQL = """
+    CREATE TABLE IF NOT EXISTS ref.country_name_map (
+        name_key      text    PRIMARY KEY,
+        country_name  text    NOT NULL,
+        iso_code      char(2) NOT NULL REFERENCES ref.country_risk (iso_code)
+    )
+"""
+NAME_MAP_COMMENT = (
+    "From config/country_risk.yaml country_names. name_key = name in lower case, "
+    "single spaces, straight apostrophes (fatf_lists.normalise_name)."
+)
+
 
 def load_config(path: Path = CONFIG_PATH) -> dict[str, Any]:
     """Read and validate the country-risk settings."""
@@ -179,6 +195,14 @@ def validate_config(config: dict[str, Any]) -> None:
 def name_to_iso(config: dict[str, Any]) -> dict[str, str]:
     """Return {normalised country name: ISO code} from the settings."""
     return {normalise_name(n): code for n, code in config["country_names"].items()}
+
+
+def name_map_rows(config: dict[str, Any]) -> list[tuple[str, str, str]]:
+    """Return (name_key, country name as written, ISO code) for ref.country_name_map."""
+    return [
+        (normalise_name(name), name, code)
+        for name, code in config["country_names"].items()
+    ]
 
 
 def read_fatf_pages(
@@ -375,7 +399,9 @@ def load_country_risk(
     wgi_values: list[WgiValue],
     rows: list[CountryRisk],
 ) -> int:
-    """Replace raw.fatf_lists, raw.wgi and ref.country_risk, in one transaction.
+    """Replace raw.fatf_lists, raw.wgi, ref.country_risk and ref.country_name_map.
+
+    Everything runs in one transaction.
 
     The coverage check runs inside the transaction: if any country is
     missing, nothing is saved and the previous tables stay as they were.
@@ -433,9 +459,21 @@ def load_country_risk(
     with conn.transaction(), conn.cursor() as cur:
         create_load_log(cur)
         cur.execute("CREATE SCHEMA IF NOT EXISTS ref")
-        for create in (CREATE_FATF_SQL, CREATE_WGI_SQL, CREATE_COUNTRY_RISK_SQL):
+        for create in (
+            CREATE_FATF_SQL,
+            CREATE_WGI_SQL,
+            CREATE_COUNTRY_RISK_SQL,
+            CREATE_NAME_MAP_SQL,
+        ):
             cur.execute(create)
-        cur.execute("TRUNCATE raw.fatf_lists, raw.wgi, ref.country_risk")
+        cur.execute(
+            sql.SQL("COMMENT ON TABLE ref.country_name_map IS {}").format(
+                sql.Literal(NAME_MAP_COMMENT)
+            )
+        )
+        cur.execute(
+            "TRUNCATE raw.fatf_lists, raw.wgi, ref.country_risk, ref.country_name_map"
+        )
         cur.executemany(
             "INSERT INTO raw.fatf_lists VALUES (%s, %s, %s, %s, %s, %s)", fatf_rows
         )
@@ -445,6 +483,13 @@ def load_country_risk(
         cur.executemany(
             f"INSERT INTO ref.country_risk ({', '.join(COLUMNS)}) VALUES ({placeholders})",
             [astuple(r) for r in rows],
+        )
+        # After ref.country_risk: the foreign key rejects a code with no row.
+        map_rows = name_map_rows(config)
+        cur.executemany(
+            "INSERT INTO ref.country_name_map (name_key, country_name, iso_code)"
+            " VALUES (%s, %s, %s)",
+            map_rows,
         )
 
         cur.execute(SAML_D_LOCATIONS_SQL)
@@ -485,6 +530,15 @@ def load_country_risk(
         cur.execute(
             log_sql,
             ("ref.country_risk", "config/country_risk.yaml", len(rows), ref_note),
+        )
+        cur.execute(
+            log_sql,
+            (
+                "ref.country_name_map",
+                "config/country_risk.yaml",
+                len(map_rows),
+                f"country_risk config v{config['version']}; country_names",
+            ),
         )
 
     logger.info(
