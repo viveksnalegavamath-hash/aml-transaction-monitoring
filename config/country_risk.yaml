@@ -1,0 +1,101 @@
+# Settings for the country-risk reference table (ref.country_risk).
+#
+# Two separate views of each country, kept in separate columns:
+#   1. FATF status: read from the FATF pages saved in data/raw/fatf/.
+#      The lists are never typed in by hand; only the files to read are named here.
+#   2. Internal rating: World Bank Worldwide Governance Indicators (WGI),
+#      the average of three indicators, split into thirds.
+#
+# Every ISO code is quoted: unquoted YAML reads some codes (e.g. NO) as true/false.
+
+version: 1
+
+fatf:
+  # Saved from the browser (the site blocks automated downloads). `list` says
+  # which FATF list the page is; the code checks it against the page title.
+  pages:
+    - {file: fatf_call_for_action_june_2026.html, list: call_for_action}
+    - {file: fatf_increased_monitoring_june_2026.html, list: increased_monitoring}
+  # Headings on the pages that are not jurisdictions. Any other heading must be
+  # a country in `country_names` below, or the build stops.
+  ignore_headings:
+    - Publication details
+    - Related materials
+    - The FATF calls for the application of enhanced due diligence – and not countermeasures – on the below jurisdiction.
+
+wgi:
+  # World Bank API, data source 3 (Worldwide Governance Indicators). CC BY 4.0.
+  api_url: https://api.worldbank.org/v2/country/all/indicator/{indicator}?source=3&format=json&per_page=1000&date={year}
+  source_page: https://www.worldbank.org/en/publication/worldwide-governance-indicators
+  data_year: 2025
+  # Governance estimates, roughly -2.5 (weak) to +2.5 (strong).
+  # Decided 21 Oct 2026: the three most closely tied to money-laundering risk.
+  indicators:
+    GOV_WGI_CC.EST: control_of_corruption
+    GOV_WGI_RL.EST: rule_of_law
+    GOV_WGI_RQ.EST: regulatory_quality
+  # Countries ranked by the average of the three, weakest governance first,
+  # then split into equal thirds. A country needs all three to be rated.
+  rating_bands: [high, medium, low]
+  # WGI rows that come without an ISO code: map them by name ...
+  economies_without_code:
+    Anguilla: "AI"
+    Cook Islands: "CK"
+    French Guiana: "GF"
+    Jersey: "JE"
+    Martinique: "MQ"
+    Niue: "NU"
+    Reunion: "RE"
+    Taiwan, China: "TW"
+  # ... or skip them on purpose. Any other row without a code stops the build.
+  skip_without_code:
+    - Netherlands Antilles  # dissolved in 2010; no ISO code and no values
+
+# Country names as written in SAML-D and on the FATF pages -> ISO 3166-1 alpha-2.
+# Matching ignores upper/lower case, extra spaces and curly vs straight apostrophes.
+country_names:
+  # SAML-D bank locations (all 18, from sql/profiling/saml_d_profile.sql Q6b)
+  UK: "GB"
+  UAE: "AE"
+  USA: "US"
+  Albania: "AL"
+  Austria: "AT"
+  France: "FR"
+  Germany: "DE"
+  India: "IN"
+  Italy: "IT"
+  Japan: "JP"
+  Mexico: "MX"
+  Morocco: "MA"
+  Netherlands: "NL"
+  Nigeria: "NG"
+  Pakistan: "PK"
+  Spain: "ES"
+  Switzerland: "CH"
+  Turkey: "TR"
+  # FATF jurisdictions, spelt as on the June 2026 pages
+  Democratic People's Republic of Korea (DPRK): "KP"
+  Iran: "IR"
+  Myanmar: "MM"
+  Angola: "AO"
+  Bolivia: "BO"
+  Bosnia and Herzegovina: "BA"
+  Bulgaria: "BG"
+  Cameroon: "CM"
+  Côte d'Ivoire: "CI"
+  Democratic Republic of the Congo: "CD"
+  Haiti: "HT"
+  Iraq: "IQ"
+  Kenya: "KE"
+  Kuwait: "KW"
+  Lao PDR: "LA"
+  Lebanon: "LB"
+  Monaco: "MC"
+  Nepal: "NP"
+  Papua New Guinea: "PG"
+  South Sudan: "SS"
+  Syria: "SY"
+  Venezuela: "VE"
+  Vietnam: "VN"
+  Virgin Islands (UK): "VG"
+  Yemen: "YE"
