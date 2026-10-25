@@ -33,7 +33,7 @@ rationale: >
   the internal rating (World Bank governance indicators, ref.country_risk)
   covers countries FATF does not list. Rules tailored to the firm's risks:
   FCA FCG 3.2.
-expected_weekly_alerts: null  # set from the baseline run (step 6)
+expected_weekly_alerts: 726  # tuning period, full data, baseline run 25 Oct 2026
 owner: Vivek Nalegavamath (AML rules owner, portfolio project)
 last_tuned: null
 change_log:

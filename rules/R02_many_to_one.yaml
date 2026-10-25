@@ -27,7 +27,7 @@ rationale: >
   reg. 28(11)), with rules tailored to typologies (FCA FCG 3.2). Many
   unrelated senders funnelling money into one account is a common pattern of
   money mules and collection accounts.
-expected_weekly_alerts: null  # set from the baseline run (step 6)
+expected_weekly_alerts: 358  # tuning period, full data, baseline run 25 Oct 2026
 owner: Vivek Nalegavamath (AML rules owner, portfolio project)
 last_tuned: null
 change_log:

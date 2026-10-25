@@ -29,7 +29,7 @@ rationale: >
   Cash is a main route for placing criminal proceeds into the financial
   system, so an account funded mostly by cash deposits is a standard red
   flag.
-expected_weekly_alerts: null  # set from the baseline run
+expected_weekly_alerts: 978  # tuning period, full data, baseline run 25 Oct 2026
 owner: Vivek Nalegavamath (AML rules owner, portfolio project)
 last_tuned: null
 change_log:

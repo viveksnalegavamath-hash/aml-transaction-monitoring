@@ -1,7 +1,8 @@
 """Tests for the rules engine: spec checks, label guard, suppression, writing alerts."""
 
+import random
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -13,10 +14,12 @@ from aml_transaction_monitoring.rules.engine import (
     Candidate,
     alert_id,
     check_rule_sql,
+    iter_candidates,
     load_rule,
     load_rules,
     run_rules,
     suppress,
+    suppress_sorted,
     to_alert,
 )
 
@@ -125,6 +128,53 @@ def test_file_name_must_match_rule_id(tmp_path: Path) -> None:
 # --- Suppression and alert building (no database) --------------------------------
 
 
+def old_suppress(candidates: list[Candidate], days: int) -> list[Candidate]:
+    """The engine's suppression before streaming (22 Oct 2026), kept as the reference."""
+    kept, last_kept = [], {}
+    for c in sorted(candidates, key=lambda c: (c.account_id, c.trigger_ts)):
+        previous = last_kept.get(c.account_id)
+        if previous is None or c.trigger_ts - previous >= timedelta(days=days):
+            kept.append(c)
+            last_kept[c.account_id] = c.trigger_ts
+    return kept
+
+
+def test_streaming_suppression_keeps_exactly_what_the_old_method_kept() -> None:
+    rng = random.Random(20261023)
+    start = datetime.fromisoformat("2023-01-01 00:00")  # naive, like trigger_ts
+    candidates = [
+        candidate(
+            f"A{rng.randrange(50)}",
+            (start + timedelta(hours=rng.randrange(24 * 120))).isoformat(),
+        )
+        for _ in range(2000)
+    ]
+    assert suppress(candidates, 7) == old_suppress(candidates, 7)
+
+
+def test_streaming_suppression_refuses_unsorted_input() -> None:
+    unsorted = [candidate("B", "2023-01-01 10:00"), candidate("A", "2023-01-01 10:00")]
+    with pytest.raises(ValueError, match="must be sorted"):
+        list(suppress_sorted(unsorted, 7))
+
+
+def test_candidates_stream_sorted_across_batches(rule_db) -> None:
+    # Five in-band cash deposits for each of three accounts, added in mixed order.
+    for day in range(1, 6):
+        for account in ("C", "A", "B"):
+            rule_db.add(
+                f"2023-03-0{day} 10:00",
+                receiver_account=account,
+                payment_type="cash_deposit",
+                amount_gbp=9000,
+            )
+    rule = load_rules(only=["R01"])[0]
+    rows = list(iter_candidates(rule_db.conn, rule, rule_db.schema, batch_size=2))
+    keys = [(c.account_id, c.trigger_ts) for c in rows]
+    assert len(rows) == 9  # 3rd, 4th and 5th deposit of each account
+    assert keys == sorted(keys)
+
+
 def test_repeats_within_suppression_period_are_dropped() -> None:
     kept = suppress(
         [
@@ -172,8 +222,9 @@ def test_run_writes_alerts_links_and_run_log(rule_db) -> None:
         rule_db.add(
             f"2023-01-0{day} 10:00", payment_type="cash_deposit", amount_gbp=9000
         )
-    alerts = run_rules(rule_db.conn, load_rules(only=["R01"]), rule_db.schema)
-    assert len(alerts) == 1
+    assert run_rules(rule_db.conn, load_rules(only=["R01"]), rule_db.schema) == {
+        "R01": 1
+    }
 
     def one(query: str) -> tuple:
         return rule_db.conn.execute(

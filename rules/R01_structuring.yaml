@@ -28,7 +28,7 @@ rationale: >
   the customer (MLR 2017 reg. 28(11)); monitoring rules should be tailored to
   typologies and calibrated (FCA FCG 3.2). Repeated cash deposits just below a
   round threshold are a classic structuring red flag.
-expected_weekly_alerts: null  # set from the baseline run (step 6)
+expected_weekly_alerts: 0  # tuning period, full data, baseline run 25 Oct 2026
 owner: Vivek Nalegavamath (AML rules owner, portfolio project)
 last_tuned: null
 change_log:

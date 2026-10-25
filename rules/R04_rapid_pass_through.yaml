@@ -29,7 +29,7 @@ rationale: >
   reg. 28(11)), with rules tailored to typologies (FCA FCG 3.2). Funds that
   pass straight through an account, with little left behind, are a core
   layering red flag and typical of money-mule accounts.
-expected_weekly_alerts: null  # set from the baseline run (step 6)
+expected_weekly_alerts: 761  # tuning period, full data, baseline run 25 Oct 2026
 owner: Vivek Nalegavamath (AML rules owner, portfolio project)
 last_tuned: null
 change_log:

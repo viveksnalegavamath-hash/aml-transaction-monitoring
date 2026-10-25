@@ -9,10 +9,13 @@ file in `rules/sql/`. The engine:
 2. runs each rule's SQL on `fct_transactions` (and, if the rule needs KYC,
    `dim_customer`), binding thresholds as query parameters (never string
    formatting) and the tables as quoted identifiers;
-3. suppresses repeat alerts for the same account within the rule's
-   suppression period;
-4. writes `alerts`, `alert_transactions` and a `rule_runs` audit row, in one
-   transaction, replacing earlier alerts of the rules it ran.
+3. streams each rule's candidates from a server-side cursor, sorted by
+   account and time, and suppresses repeat alerts for the same account within
+   the rule's suppression period while reading, so memory holds the alerts,
+   not every candidate (the full data has millions of candidates);
+4. writes each rule's `alerts`, `alert_transactions` and a `rule_runs` audit
+   row as soon as the rule finishes, in one transaction per rule, replacing
+   that rule's earlier alerts.
 
 Rules never read the evaluation schema or the suspicious label: the label is
 joined only afterwards, by the evaluation code.
@@ -27,6 +30,8 @@ import argparse
 import hashlib
 import logging
 import re
+import time
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -250,33 +255,73 @@ def load_rules(
     return [r for r in rules if r.enabled or include_disabled]
 
 
-def find_candidates(
-    conn: psycopg.Connection, rule: Rule, schema: str
-) -> list[Candidate]:
-    """Run a rule's SQL on the tables in `<schema>` and return its candidate rows."""
-    query = sql.SQL(rule.sql_text).format(
+def iter_candidates(
+    conn: psycopg.Connection, rule: Rule, schema: str, batch_size: int = 10_000
+) -> Iterator[Candidate]:
+    """Stream a rule's candidate rows, sorted by account and trigger time.
+
+    A server-side (named) cursor makes PostgreSQL send `batch_size` rows at a
+    time; a normal cursor would load the whole result into Python memory.
+    `COLLATE "C"` sorts account IDs by code point, the same order as Python.
+    The rule SQL is wrapped on its own lines, so a trailing comment cannot
+    swallow the closing bracket.
+    """
+    rule_query = sql.SQL(rule.sql_text).format(
         **{name: sql.Identifier(schema, table) for name, table in TABLES.items()}
     )
-    with conn.transaction(), conn.cursor() as cur:
+    query = sql.SQL(
+        "select * from (\n{}\n) as candidates"
+        ' order by account_id collate "C", trigger_ts'
+    ).format(rule_query)
+    with (
+        conn.transaction(),
+        conn.cursor(name=f"candidates_{rule.id.lower()}") as cur,
+    ):
+        cur.itersize = batch_size
         cur.execute(query, rule.parameters)
         columns = tuple(d.name for d in cur.description)
         if columns != RESULT_COLUMNS:
             raise ValueError(
                 f"{rule.id}: SQL returned {columns}, expected {RESULT_COLUMNS}"
             )
-        return [Candidate(*row) for row in cur.fetchall()]
+        for row in cur:
+            yield Candidate(*row)
+
+
+def find_candidates(
+    conn: psycopg.Connection, rule: Rule, schema: str
+) -> list[Candidate]:
+    """All of a rule's candidate rows as a list (for tests and small data)."""
+    return list(iter_candidates(conn, rule, schema))
+
+
+def suppress_sorted(candidates: Iterable[Candidate], days: int) -> Iterator[Candidate]:
+    """Keep the first candidate per account, then none within `days` of the last kept one.
+
+    Candidates must arrive sorted by account and trigger time, so only the
+    current account is held in memory.
+
+    Raises:
+        ValueError: if the candidates are not sorted.
+    """
+    window = timedelta(days=days)
+    previous: tuple[str, datetime] | None = None
+    last_account: str | None = None
+    last_kept: datetime | None = None
+    for c in candidates:
+        key = (c.account_id, c.trigger_ts)
+        if previous is not None and key < previous:
+            raise ValueError("candidates must be sorted by account and trigger time")
+        previous = key
+        if c.account_id != last_account or c.trigger_ts - last_kept >= window:
+            yield c
+            last_account, last_kept = c.account_id, c.trigger_ts
 
 
 def suppress(candidates: list[Candidate], days: int) -> list[Candidate]:
-    """Keep the first candidate per account, then none within `days` of the last kept one."""
-    kept: list[Candidate] = []
-    last_kept: dict[str, datetime] = {}
-    for c in sorted(candidates, key=lambda c: (c.account_id, c.trigger_ts)):
-        previous = last_kept.get(c.account_id)
-        if previous is None or c.trigger_ts - previous >= timedelta(days=days):
-            kept.append(c)
-            last_kept[c.account_id] = c.trigger_ts
-    return kept
+    """`suppress_sorted` for an unsorted list."""
+    ordered = sorted(candidates, key=lambda c: (c.account_id, c.trigger_ts))
+    return list(suppress_sorted(ordered, days))
 
 
 def alert_id(rule_id: str, account_id: str, trigger_ts: datetime) -> str:
@@ -313,6 +358,9 @@ def write_alerts(
 ) -> int:
     """Replace the alerts of `rules` in `<schema>` and log the run, in one transaction.
 
+    Alerts and their transaction links are loaded with COPY: the full data can
+    have millions of links.
+
     Returns:
         The run ID.
     """
@@ -338,58 +386,84 @@ def write_alerts(
             sql.SQL("DELETE FROM {}.alerts WHERE rule_id = ANY(%s)").format(s),
             ([r.id for r in rules],),
         )
-        cur.executemany(
+        with cur.copy(
             sql.SQL(
-                "INSERT INTO {}.alerts (alert_id, rule_id, rule_version, account_id, alert_date,"
-                " trigger_ts, window_start, reason, metrics, run_id)"
-                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
-            ).format(s),
-            [
-                (
-                    a.alert_id,
-                    a.rule_id,
-                    a.rule_version,
-                    a.account_id,
-                    a.alert_date,
-                    a.trigger_ts,
-                    a.window_start,
-                    a.reason,
-                    Jsonb(a.metrics),
-                    run_id,
+                "COPY {}.alerts (alert_id, rule_id, rule_version, account_id, alert_date,"
+                " trigger_ts, window_start, reason, metrics, run_id) FROM STDIN"
+            ).format(s)
+        ) as copy:
+            for a in alerts:
+                copy.write_row(
+                    (
+                        a.alert_id,
+                        a.rule_id,
+                        a.rule_version,
+                        a.account_id,
+                        a.alert_date,
+                        a.trigger_ts,
+                        a.window_start,
+                        a.reason,
+                        Jsonb(a.metrics),
+                        run_id,
+                    )
                 )
-                for a in alerts
-            ],
-        )
-        cur.executemany(
+        with cur.copy(
             sql.SQL(
-                "INSERT INTO {}.alert_transactions (alert_id, transaction_id) VALUES (%s, %s)"
-            ).format(s),
-            [(a.alert_id, t) for a in alerts for t in a.transaction_ids],
-        )
+                "COPY {}.alert_transactions (alert_id, transaction_id) FROM STDIN"
+            ).format(s)
+        ) as copy:
+            for a in alerts:
+                for t in a.transaction_ids:
+                    copy.write_row((a.alert_id, t))
     return run_id
 
 
-def run_rules(conn: psycopg.Connection, rules: list[Rule], schema: str) -> list[Alert]:
-    """Run `rules` on `<schema>.fct_transactions`, write the alerts and return them."""
-    started_at = datetime.now().astimezone()
-    alerts: list[Alert] = []
-    candidate_counts: dict[str, int] = {}
+def run_rules(
+    conn: psycopg.Connection, rules: list[Rule], schema: str
+) -> dict[str, int]:
+    """Run `rules` on `<schema>`, writing each rule's alerts as soon as it finishes.
+
+    Returns:
+        {rule ID: number of alerts written}.
+    """
+    alert_counts: dict[str, int] = {}
     for rule in rules:
-        candidates = find_candidates(conn, rule, schema)
-        kept = suppress(candidates, rule.suppression_days)
-        candidate_counts[rule.id] = len(candidates)
-        alerts.extend(to_alert(rule, c) for c in kept)
+        started_at = datetime.now().astimezone()
+        clock = time.monotonic()
+        logger.info("%s %s: started", rule.id, rule.name)
+        n_candidates = 0
+
+        def counted(candidates: Iterator[Candidate]) -> Iterator[Candidate]:
+            nonlocal n_candidates
+            for c in candidates:
+                n_candidates += 1
+                yield c
+
+        stream = counted(iter_candidates(conn, rule, schema))
+        alerts = [
+            to_alert(rule, c) for c in suppress_sorted(stream, rule.suppression_days)
+        ]
+        run_id = write_alerts(
+            conn, schema, [rule], alerts, {rule.id: n_candidates}, started_at
+        )
+        alert_counts[rule.id] = len(alerts)
         logger.info(
-            "%s %s: %d candidates, %d alerts after %d-day suppression",
+            "%s %s: %d candidates, %d alerts after %d-day suppression;"
+            " run %d written to %s.alerts in %.0f s",
             rule.id,
             rule.name,
-            len(candidates),
-            len(kept),
+            n_candidates,
+            len(alerts),
             rule.suppression_days,
+            run_id,
+            schema,
+            time.monotonic() - clock,
         )
-    run_id = write_alerts(conn, schema, rules, alerts, candidate_counts, started_at)
-    logger.info("Run %d: wrote %d alerts to %s.alerts", run_id, len(alerts), schema)
-    return alerts
+        if alerts:
+            logger.info(
+                "%s example: %s - %s", rule.id, alerts[0].account_id, alerts[0].reason
+            )
+    return alert_counts
 
 
 def main() -> None:
@@ -415,14 +489,8 @@ def main() -> None:
         "Running %s on %s.fct_transactions", ", ".join(r.id for r in rules), schema
     )
     with get_connection() as conn:
-        alerts = run_rules(conn, rules, schema)
-    if alerts:
-        logger.info(
-            "Example: %s %s - %s",
-            alerts[0].rule_id,
-            alerts[0].account_id,
-            alerts[0].reason,
-        )
+        counts = run_rules(conn, rules, schema)
+    logger.info("Done: %s", ", ".join(f"{r} {n:,} alerts" for r, n in counts.items()))
 
 
 if __name__ == "__main__":

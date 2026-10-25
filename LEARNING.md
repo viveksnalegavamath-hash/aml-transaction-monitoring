@@ -167,3 +167,39 @@ Two problems found in the step 4 sample results, fixed before the step 6 baselin
 - **R10 Income mismatch: built, tested, disabled** (`enabled: false` in its YAML, Vivek). Profiling: 88% of individual customers who receive money (66,834 of 76,153) would trigger it in some month: median monthly inflow £19,447 against a median declared monthly income of £2,417 (businesses 36%). The synthetic income is drawn without looking at the transactions — deliberately, to avoid leakage — so it carries no information about an account. Rescaling it would change the alert volume, not add signal. Measured on the sample without writing alerts: 88,473 alerts on 22,710 accounts, more than all enabled rules together. Kept because the control is standard and works with real KYC data. Interview point: a rule is only as good as its reference data, and "we chose not to run it, and here is why" is a legitimate model-risk decision.
 - **Engine changes for R10:** rule SQL may read `{dim_customer}` (same schema as `{fct}`, quoted identifier; any other placeholder name is refused), and a spec may say `enabled: false` — skipped in normal runs, run only when asked for by ID (`--rule R10`). Tests cover both.
 - **First look (dev sample, sampled accounts, not for reporting), hold-out:** R09 ~64 alerts/week, precision 2.5%, lift 4.7×, account recall 14%, transaction recall 5.5%. "Any rule" account recall 72% → 76%. R09 catches only 3% of `structuring` transactions (structuring deposits average ~£5,246, often spread out); tuning to consider.
+
+## Phase 2 — Baseline: the engine ran out of memory, and the fix (22–23 Oct 2026)
+
+- **What happened.** The first full-data run finished R01 in ~1 s, then sat on R02 for 10½ hours until stopped. Diagnosis, from evidence rather than guesswork: PostgreSQL had *finished* R02's query (`pg_stat_activity`: "idle in transaction", waiting on the client), while the Python process had used only ~4 min of CPU and the Mac had 25.8 GB of 26.6 GB swap in use. The process was in state `U` (waiting on disk): it was thrashing, not computing. Nothing had been written, because alerts were written only at the very end in one transaction, so no clean-up was needed.
+- **Cause: a design limit, not a slow query.** The engine loaded *every* candidate row into memory (`fetchall()`), each with the full list of transaction IDs in its window, and only then applied the 7-day suppression. On the sample, R02 had 179,379 candidates for 1,643 alerts (~100 per alert) — fine. On the full data, busy receiving accounts have all their senders instead of ~10% of them, so there are far more candidates, each with longer ID lists. It did not show on the sample because the sample is small. Lesson: something that works on a sample can still fail at full scale; check how memory grows with the data, not only time.
+- **Fix (Vivek's additions in bold):**
+  1. **A server-side (named) psycopg cursor**, so PostgreSQL sends rows in batches of 10,000. A normal cursor loads the whole result into Python memory on `execute`, so batching the Python loop alone would not have helped.
+  2. Suppression while reading: candidates come sorted by account and time (`ORDER BY account_id COLLATE "C", trigger_ts` — the "C" collation sorts like Python, so the order check is valid), and only the current account is held in memory. Memory now holds the alerts, not every candidate. The function refuses unsorted input rather than silently giving wrong alerts.
+  3. Each rule is written as soon as it finishes (its own transaction and audit row), with its duration in the log. A failure in one rule no longer loses the others.
+  4. `COPY` instead of row-by-row inserts for alerts and their transaction links (millions on the full data).
+- **Proof the alerts did not change** (**Vivek: prove identical on the sample before the full run**). Fingerprint per rule before and after the change: alert count, checksum of all alert IDs, of all reasons and metrics, and of all alert-to-transaction links. All identical for every rule. Also a unit test comparing the streaming suppression with the old in-memory method on 2,000 random candidates. Stronger than comparing counts: two runs could have the same count but different alerts.
+- **Guard rails on the full run** (**Vivek: stop if a rule takes > 20 min or Python memory > 6 GB**): a watchdog script checked memory and log progress every 15 s and recorded the peak.
+- **Full run, 25 Oct 2026:** finished in 28 min, exit 0, **peak Python memory 1,742 MB** (limit 6 GB); the slowest rules were R07 (586 s) and R03 (502 s), under the 20-minute limit. R02 had 1.78 million candidates for 16,388 alerts — the number that broke the old engine.
+
+## Phase 2 — Full-data baseline (25 Oct 2026, the first reportable numbers)
+
+Untuned rules at the plan's starting values; R10 disabled. Full results: `docs/results/rules_evaluation.md` and `.csv`. **Hold-out (Jun – 23 Aug 2023, headline):** base rate 0.51% (2,490 suspicious of 486,685 active accounts).
+
+| Rule | Alerts/week | Precision | Lift | Account recall | Transaction recall |
+| --- | --- | --- | --- | --- | --- |
+| R01 Structuring | 0 | – | – | 0.0% | 0.0% |
+| R02 Many-to-one | 355 | 3.9% | 7.6× | 6.8% | 12.3% |
+| R03 One-to-many | 1,748 | 2.2% | 4.2× | 18.3% | 24.4% |
+| R04 Rapid pass-through | 901 | 3.0% | 5.9× | 10.4% | 20.3% |
+| R05 High-risk jurisdiction | 739 | 2.7% | 5.2× | 11.4% | 14.7% |
+| R06 Large vs profile | 3,806 | 2.7% | 5.2× | 49.7% | 52.8% |
+| R07 Behaviour change | 13,564 | 0.6% | 1.2× | 34.0% | 35.7% |
+| R09 Cash intensity | 730 | 3.3% | 6.5× | 16.5% | 17.3% |
+| Any rule | – | – | – | 72.9% | 81.9% |
+
+- **Reading it:** every rule except R07 is 4–8× better than random selection, but precision stays at 2–4% — typical of untuned threshold rules, where most alerts are false positives (industry surveys often quote 90–95%+). The whole set raises ~22,000 alerts a week, far beyond any real team's capacity; that is the problem tuning and ML address next.
+- **R07 is the outlier:** 62% of all alerts, lift barely above random (0.8× in the tuning months), and 0% of `behavioural_change_1/2`, the typologies it was aimed at. First candidate for tuning or switching off.
+- **R06 does the most work:** half of all suspicious accounts, at 5.2× lift.
+- **The full data differs from the sample:** e.g. `behavioural_change_1/2` are caught 98–99% by "any rule" on the full data (mostly R02, R03, R04), versus 0–64% on the sample. Sample numbers were only ever for development (CLAUDE.md rule 10); this shows why.
+- **`expected_weekly_alerts`** in each rule's YAML is now set from the **tuning-period** volume on the full data, not the hold-out, so the hold-out stays unused for decisions.
+- **Interview line:** "Baseline: 8 typology rules, 82% of suspicious transactions caught by at least one rule on an untouched hold-out, but at 2–4% precision and ~22k alerts a week; tuning and an ML layer then target the false positives."
