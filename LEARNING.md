@@ -203,3 +203,40 @@ Untuned rules at the plan's starting values; R10 disabled. Full results: `docs/r
 - **The full data differs from the sample:** e.g. `behavioural_change_1/2` are caught 98–99% by "any rule" on the full data (mostly R02, R03, R04), versus 0–64% on the sample. Sample numbers were only ever for development (CLAUDE.md rule 10); this shows why.
 - **`expected_weekly_alerts`** in each rule's YAML is now set from the **tuning-period** volume on the full data, not the hold-out, so the hold-out stays unused for decisions.
 - **Interview line:** "Baseline: 8 typology rules, 82% of suspicious transactions caught by at least one rule on an untouched hold-out, but at 2–4% precision and ~22k alerts a week; tuning and an ML layer then target the false positives."
+
+## Phase 2 — Tuning R07, R03 and R06 (25 Oct 2026)
+
+- **Method: above/below-the-line testing on the tuning months only** (Oct 2022 – May 2023, full data). For each rule, candidates were generated **once** on the full data at values one step *looser* than the plan, then every option was a filter on those candidates (tighter thresholds can only remove candidates), followed by the engine's own suppression and the report's own scoring. Tables: `docs/results/tuning_R03.md`, `tuning_R06.md`, `tuning_R07.md`; code `evaluation/tuning.py`, grids `config/tuning.yaml`. ~10 min of SQL per rule instead of ~10 min per option (75 options for R07).
+- **Self-check before trusting any table:** at the plan's values the harness reproduced the baseline report's tuning numbers exactly for all three rules (alerts and accounts caught; e.g. R07 189,296 / 2,201). Interview point: validate a shortcut against the slow, trusted path before using it.
+- **"Above the line"** = stricter than the plan (alerts and true accounts lost); **"below the line"** = looser (what the plan's values miss). Looser options mattered: R06's best setting uses a *lower* minimum amount than the plan.
+- **R07: kept, dormancy clause removed.** The dormancy clause was worse than random at every minimum volume (lift 0.1–0.2×); the spike clause improves steadily with stricter values. Chosen: spike only, 15×, 30-day volume ≥ £25,000 → 5,591 → 392 alerts/week, lift 0.8× → 6.2×, account recall 38.4% → 24.5%. Above Vivek's 2× bar, so kept rather than disabled.
+- **R03: a minimum total cuts volume but not noise.** Precision stays ~2% at any minimum total, and more receivers is *worse* (20 receivers: 0.4×). Chosen: total ≥ £100,000 → 1,784 → 738 alerts/week, lift 2.5× → 2.2×, account recall 32.2% → 23.1%. An honest trade-off: volume for the overall goal, at slightly lower lift.
+- **R06: mean kept (median tested and rejected), multiple 10×, minimum £5,000.** The median was worse than the mean at every setting (e.g. 3×/£10,000: 3,777 alerts/week at 2.9× vs mean 2,369 at 3.2×) — the step 4 hypothesis that a median suits heavy-tailed amounts did not hold here. A higher minimum amount *lowers* lift (SAML-D's suspicious large payments are mostly mid-sized), so the multiple is the lever: 2,369 → 565 alerts/week, lift 3.2× → 3.7×, account recall 58.4% → 36.1%.
+- **R01 left at textbook values** (documented in its change log): the £8,000–£9,999.99 band is the classic "just under £10,000" pattern (UK border cash declaration £10,000; MLR 2017 high-value-dealer threshold €10,000). It never fires on SAML-D, whose structuring deposits are much smaller (~£5,246), and structuring is caught by other rules (78% by "any rule" in the baseline hold-out). Re-fitting the band to one synthetic dataset would tune the rule to the data generator, not to real behaviour.
+- **Goal (Vivek): cut total weekly alerts by ≥ 60% with "any rule" account recall ≥ 65%.** Combined options, tuning months:
+
+| Option | R07 | R06 | R03 | Alerts/week | Cut | "Any rule" account recall |
+| --- | --- | --- | --- | --- | --- | --- |
+| Baseline | plan | plan | plan | 12,566 | – | 84.8% |
+| **B (chosen)** | spike 15×, £25k | mean 10×, £5k | ≥ £100k | **4,517** | **−64%** | **78.5%** |
+| D | spike 10×, £25k | mean 10×, £5k | ≥ £100k | 4,800 | −62% | 78.8% |
+| E | spike 15×, £25k | mean 5×, £5k | ≥ £100k | 5,210 | −59% | 82.0% |
+
+- **Why B over E (Vivek's reasoning):** E's extra ~690 alerts a week (≈ 23,500 over the 33.9 tuning weeks) catch about 200 more suspicious accounts (82.0% vs 78.5% of 5,737), about **1 in 117 alerts** — close to the base rate (0.78%, 1 in 128). Those extra alerts are almost as good as picking accounts at random, so they are not worth an analyst's time. This is the marginal view of tuning: judge the *extra* alerts an option adds, not only its totals. Interview point.
+- **Recall loss accepted on purpose:** "any rule" account recall drops 84.8% → 78.5% (−6.3 points) for −64% alerts, because accounts dropped by one rule are often still caught by another.
+- **Each tuned rule is version 2**, with a dated change-log entry giving the evidence; `last_tuned` and `expected_weekly_alerts` updated; tests updated so every "does not fire" test is blocked only by the condition it is about. The pre-tuning versions stay reproducible: R07 version 1 SQL is kept as a tuning variant, and the untuned report as `docs/results/rules_evaluation_baseline.md`.
+- **Real SQL matched the tuning tables exactly** before the hold-out was opened: on the tuning months the version 2 rules gave 738 / 565 / 392 alerts/week, total 4,517, "any rule" account recall 78.5%. Full run of the three rules: peak 794 MB, under 9 min each.
+- **Hold-out, run once (25 Oct 2026), reported as it came out; no threshold changes after seeing it (Vivek):**
+
+| Hold-out (Jun – 23 Aug 2023) | Baseline | Tuned | Goal |
+| --- | --- | --- | --- |
+| Total alerts/week | 21,843 | **5,053 (−77%)** | ≥ 60% cut — **met** |
+| "Any rule" account recall | 72.9% | **58.6%** | ≥ 65% — **missed** |
+| "Any rule" transaction recall | 81.9% | 65.9% | – |
+| R07 lift / account recall | 1.2× / 34.0% | 10.6× / 21.4% | – |
+| R06 lift / account recall | 5.2× / 49.7% | 7.0× / 26.6% | – |
+| R03 lift / account recall | 4.2× / 18.3% | 4.0× / 10.5% | – |
+
+- **Reading it honestly:** the tuned rules are much sharper out of sample (R07 10.6× lift, R06 7.0×), and the volume cut held (larger than on the tuning months). But "any rule" account recall fell by 14.3 points on the hold-out, against 6.3 on the tuning months, so the recall goal, met in tuning (78.5%), is missed out of sample (58.6%). The baseline itself was already lower on the hold-out (72.9% vs 84.8% in tuning): the hold-out months have fewer, harder-to-catch suspicious accounts for these rules. Tuning on one period and checking another exposed a gap that tuning-only numbers hid.
+- **Why not re-tune now:** choosing new thresholds after seeing the hold-out would turn it into a second tuning set, and its numbers would no longer be an honest estimate. The miss stays in the results. Next steps that are legitimate: (1) the ML layer (Phase 3) is aimed exactly at recovering recall at a fixed alert volume; (2) a future tuning round would use a rolling or more recent tuning window and pick values with a recall margin above the target, then be tested on new data.
+- **Interview line:** "Tuning cut alerts by 77% on an untouched hold-out and raised the weakest rule from 1.2× to 10.6× lift, but recall fell to 59% against a 65% target — a target I met in tuning and missed out of sample. I reported it rather than re-tune on the hold-out; recovering that recall at the same alert volume is the job of the ML layer."

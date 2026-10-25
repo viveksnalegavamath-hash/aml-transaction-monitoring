@@ -27,3 +27,6 @@ dbt/.user.yml
 # Private Claude Code files
 CLAUDE.local.md
 .claude/settings.local.json
+
+# Tuning caches: candidate rows with (synthetic) account IDs, never commit
+data/tuning/

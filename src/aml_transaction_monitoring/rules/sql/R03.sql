@@ -48,4 +48,5 @@ cross join lateral (
 
 ) as w
 where w.n_receivers >= %(min_receivers)s
+  and w.total_gbp >= %(min_total_gbp)s  -- added in version 2 (tuning, 25 Oct 2026)
 order by t.account_id, t.transaction_ts

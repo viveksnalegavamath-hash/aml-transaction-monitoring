@@ -4,32 +4,44 @@
 
 id: R03
 name: One-to-many
-version: 1
+version: 2
 typology: >
   Dispersal (fan-out, layered fan-out): one account pays many different
   accounts in a short time, often to spread funds out and break the trail.
 logic: >
   Alert the sending account when, within `window_days` days, it pays at least
-  `min_receivers` different accounts.
+  `min_receivers` different accounts, totalling at least `min_total_gbp`.
 sql: R03.sql
 parameters:
   min_receivers: 10
+  min_total_gbp: 100000
   window_days: 7
 suppression_days: 7
 reason: >
   Paid £{total_gbp:,.2f} to {n_receivers} different accounts in
   {n_transactions} payments within {window_days} days (rule: at least
-  {min_receivers} receivers).
+  {min_receivers} receivers and £{min_total_gbp:,.0f}).
 rationale: >
   Scrutiny must test whether activity fits the customer's profile (MLR 2017
   reg. 28(11)), with rules tailored to typologies (FCA FCG 3.2). One account
   suddenly paying many unrelated accounts is a common way to disperse funds
   across mules before they are withdrawn or moved on.
-expected_weekly_alerts: 1784  # tuning period, full data, baseline run 25 Oct 2026
+expected_weekly_alerts: 738  # tuning period, full data, version 2 (tuning 25 Oct 2026)
 owner: Vivek Nalegavamath (AML rules owner, portfolio project)
-last_tuned: null
+last_tuned: 2026-10-25
 change_log:
   - date: 2026-10-22
     version: 1
     change: Created with the project plan's starting values (no minimum total).
     reason: Not yet tuned (tuning uses Oct 2022 – May 2023 only).
+  - date: 2026-10-25
+    version: 2
+    change: Added a minimum total of £100,000 (min_total_gbp); 10 receivers kept.
+    reason: >
+      R03 had the second-highest alert volume. On the tuning months a minimum
+      total cuts volume without raising precision (2.0% at £0 and £50,000,
+      1.7% at £100,000), and more receivers is worse (15: lift 1.6x; 20:
+      0.4x). £100,000 was chosen for the volume cut the overall goal needs:
+      1,784 -> 738 alerts/week (-59%), lift 2.5x -> 2.2x, account recall
+      32.2% -> 23.1%. Accepted trade-off: a slightly lower lift.
+      Tuned on Oct 2022 – May 2023 only (full data); hold-out not used for the choice. Option B of the combined proposal (Vivek, 25 Oct 2026): total alerts per week -64%, "any rule" account recall 78.5% on the tuning months (baseline 84.8%); see docs/results/tuning_R03.md.

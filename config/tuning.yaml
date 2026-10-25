@@ -1,0 +1,41 @@
+# Threshold tuning (Phase 2 step 7): above/below-the-line testing on the
+# TUNING MONTHS ONLY (periods in config/evaluation.yaml). The hold-out is
+# checked once, after the chosen values are approved.
+#
+# Per rule: `superset` = the loosest values, used once to generate candidates
+# on the full data (one step looser than the plan, so "below the line" options
+# show too); `grid` = the options compared, each a filter on those candidates.
+# Tighter thresholds can only remove candidates, so filtering gives the same
+# alerts as re-running the SQL (checked: the plan's values reproduce the
+# baseline report exactly).
+
+R03:
+  variants:
+    plan: {sql: R03.sql, superset: {min_receivers: 8, min_total_gbp: 0}}
+  grid:
+    min_receivers: [8, 10, 15, 20]
+    min_total_gbp: [0, 10000, 20000, 50000, 100000]
+  baseline: {variant: plan, min_receivers: 10, min_total_gbp: 0}
+
+R06:
+  variants:
+    mean: {sql: R06.sql, superset: {multiple: 2.5, min_amount_gbp: 5000}}
+    median: {sql: R06_median.sql, superset: {multiple: 2.5, min_amount_gbp: 10000}}  # tested, rejected
+  grid:
+    multiple: [2.5, 3, 5, 10]
+    min_amount_gbp: [5000, 10000, 20000, 50000]
+  baseline: {variant: mean, multiple: 3, min_amount_gbp: 10000}
+
+R07:
+  variants:
+    # Version 1 SQL (both clauses); version 2 = the spike clause chosen here.
+    plan: {sql: R07_v1.sql, superset: {spike_multiple: 4, dormant_days: 90}}
+  grid:
+    clauses: [both, spike, dormant]
+    spike_multiple: [4, 5, 7, 10, 15]
+    min_volume_gbp: [0, 10000, 25000, 50000, 100000]
+  baseline: {variant: plan, clauses: both, spike_multiple: 5, min_volume_gbp: 0}
+
+# Chosen 25 Oct 2026 (option B, Vivek): R07 spike only 15x, volume >= 25,000;
+# R06 mean 10x, > 5,000; R03 10 receivers, total >= 100,000. Results:
+# docs/results/tuning_R0*.md; baseline: docs/results/rules_evaluation_baseline.md.

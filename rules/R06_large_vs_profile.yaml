@@ -4,7 +4,7 @@
 
 id: R06
 name: Large vs profile
-version: 1
+version: 2
 typology: >
   Single large transaction: one payment far larger than the account usually
   makes, out of line with what the customer's past activity would lead the
@@ -18,8 +18,8 @@ logic: >
   `min_history_days` days, so new accounts have no profile to compare with.
 sql: R06.sql
 parameters:
-  multiple: 3
-  min_amount_gbp: 10000
+  multiple: 10
+  min_amount_gbp: 5000
   baseline_days: 90
   min_baseline_payments: 1
   min_history_days: 90
@@ -36,9 +36,9 @@ rationale: >
   unusually large transactions need enhanced due diligence (reg. 33(1)(f)). Rules
   tailored to the firm's risks: FCA FCG 3.2. The account's own past is the
   profile, as no declared expected activity is available for every account.
-expected_weekly_alerts: 2369  # tuning period, full data, baseline run 25 Oct 2026
+expected_weekly_alerts: 565  # tuning period, full data, version 2 (tuning 25 Oct 2026)
 owner: Vivek Nalegavamath (AML rules owner, portfolio project)
-last_tuned: null
+last_tuned: 2026-10-25
 change_log:
   - date: 2026-10-22
     version: 1
@@ -48,3 +48,15 @@ change_log:
       measured from the account's first transaction in the data, not the
       synthetic KYC onboarding date. A mean is used as the plan states; a
       median may suit heavy-tailed amounts better (to test in step 7).
+  - date: 2026-10-25
+    version: 2
+    change: Multiple 3 -> 10; minimum amount £10,000 -> £5,000. Baseline stays the mean.
+    reason: >
+      Tuning months: 2,369 -> 565 alerts/week (-76%), precision 2.5% ->
+      2.9%, lift 3.2x -> 3.7x, account recall 58.4% -> 36.1%. A higher
+      minimum amount LOWERS lift (3x and £50,000: 2.5x): SAML-D's suspicious
+      large payments are mostly mid-sized, so the multiple is the better lever
+      and the minimum was lowered ("below the line"). The median baseline
+      (tested as noted in version 1) was worse than the mean at every
+      setting (e.g. 3x/£10,000: 3,777 alerts/week, 2.9x lift vs mean 2,369,
+      3.2x) and was rejected. Tuned on Oct 2022 – May 2023 only (full data); hold-out not used for the choice. Option B of the combined proposal (Vivek, 25 Oct 2026): total alerts per week -64%, "any rule" account recall 78.5% on the tuning months (baseline 84.8%); see docs/results/tuning_R06.md.
