@@ -9,6 +9,11 @@ sources:
         description: SAML-D transactions, every column text. Includes the suspicious label — only the evaluation model may read the label columns.
       - name: kyc_customers
         description: SYNTHETIC KYC customers (one per sending account), typed.
+      - name: uk_sanctions_list
+        description: >
+          UK Sanctions List (FCDO, OGL v3.0), loaded unchanged. Flattened: one row
+          per name x address x date of birth etc., so designations repeat. The
+          list's "Report Date" is in load_log.source_note.
       - name: fx_rates_hmrc
         description: HMRC monthly exchange rates, currency units per £1 (OGL v3.0). Not applied to SAML-D.
       - name: load_log

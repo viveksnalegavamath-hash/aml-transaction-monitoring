@@ -101,3 +101,43 @@ models:
           Handle with care in features: true for 92.5% of suspicious vs 33.2% of
           normal transactions, an artefact of how SAML-D generates typologies.
         data_tests: [not_null]
+
+  - name: dim_sanctions_designation
+    description: >
+      One row per UK Sanctions List designation (FCDO, OGL v3.0; list date on
+      every row), with known dates of birth, nationalities and address
+      countries as ISO codes. Real public data.
+    columns:
+      - name: unique_id
+        data_tests: [not_null, unique]
+      - name: designation_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [Individual, Entity, Ship]
+      - name: list_date
+        data_tests: [not_null]
+
+  - name: sanctions_names_individual
+    description: Every distinct name (primary, variation, alias) of a sanctioned individual, with list date.
+    columns: &sanctions_name_columns
+      - name: unique_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_sanctions_designation')
+                field: unique_id
+      - name: full_name
+        data_tests: [not_null]
+      - name: name_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [primary, primary_variation, alias, unknown]
+      - name: list_date
+        data_tests: [not_null]
+
+  - name: sanctions_names_entity
+    description: Every distinct name (primary, variation, alias) of a sanctioned entity, with list date.
+    columns: *sanctions_name_columns

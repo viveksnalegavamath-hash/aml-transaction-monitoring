@@ -1,0 +1,77 @@
+# S01 Sanctions screening spec. Thresholds live here, never in code. Used by
+# src/aml_transaction_monitoring/screening/ (not by the rules engine, which
+# only loads R??_*.yaml files).
+
+id: S01
+name: Sanctions screening (UK Sanctions List)
+version: 2
+logic: >
+  Screen every KYC customer's name against the UK Sanctions List: individuals
+  against sanctioned individuals' names, businesses against sanctioned
+  entities' names (primary names, variations and aliases). Names are
+  normalised (case, accents, punctuation, titles; legal words such as Ltd or
+  LLC for entities, unless removing them would leave a single word), then
+  scored with rapidfuzz: the higher of a word-order-insensitive
+  score (token_sort_ratio) and a subset score (token_set_ratio, which catches a
+  missing middle name; only when both names have at least
+  `min_tokens_for_subset` distinct words). A match is a score of at least
+  `match_threshold`. List names shorter than `min_fuzzy_length` characters
+  after normalising match only exactly. Date of birth and nationality (country
+  of incorporation for businesses) raise or lower a match's PRIORITY; they
+  never remove a match.
+parameters:
+  match_threshold: 90
+  min_tokens_for_subset: 2
+  min_fuzzy_length: 4
+priority:
+  # Priority score = name score + these points. Bands: High >= high,
+  # Medium >= medium, else Low. Every match is kept whatever its band.
+  dob_exact: 10              # a listed full date of birth equals the customer's
+  dob_year: 5                # a listed birth year within dob_year_tolerance
+  dob_year_tolerance: 1
+  dob_conflict: -10          # birth years listed, none within tolerance
+  nationality_match: 5       # customer's nationality / country of incorporation listed
+  nationality_conflict: -5   # nationalities listed, customer's not among them
+  low_quality_alias: -5      # list name is a "low quality a.k.a"
+  bands: {high: 100, medium: 90}
+normalisation:
+  titles: [mr, mrs, ms, miss, mx, dr, prof, sir, dame, lord, lady, rev]
+  entity_words: [ltd, limited, plc, llc, llp, lp, inc, incorporated, corp, corporation,
+                 co, company, group, holding, holdings, jsc, ojsc, pjsc, cjsc, ooo, oao,
+                 zao, gmbh, ag, sa, sarl, bv, nv, srl, spa, fze, fzco, fzc, and, the, of]
+test_set:
+  # Labelled test set built from list names (screening_test schema), never
+  # mixed with the KYC table. Fixed seed for reproducibility.
+  seed: 20261026
+  individuals: 400
+  entities: 100
+rationale: >
+  Firms must not make funds or economic resources available to designated
+  persons (Sanctions and Anti-Money Laundering Act 2018 and the regulations
+  under it; OFSI guidance), so customers are screened against the UK
+  Sanctions List at onboarding and whenever the list changes. Fuzzy matching
+  is needed because names are transliterated and recorded inconsistently.
+owner: Vivek Nalegavamath (AML rules owner, portfolio project)
+change_log:
+  - date: 2026-10-25
+    version: 1
+    change: Created with the plan's threshold of 90.
+    reason: >
+      Plan value. Date of birth and nationality adjust priority only, so a
+      data-entry error in either can never hide a true match.
+  - date: 2026-10-25
+    version: 2
+    change: >
+      Entities keep their legal words when removing them would leave a single
+      word ("LLC SMITH" stays "llc smith"). Also fixed: the subset score now
+      needs two DISTINCT words ("James James" counts as one word).
+    reason: >
+      In version 1, 339 of 340 business matches were one real list entity,
+      "LLC SMITH": stripping "LLC" left "smith", an exact match for every
+      synthetic "Smith Group" or "Smith PLC". Measured before choosing:
+      businesses matched 77.6 -> 15.3 per 10,000, entity test variations
+      caught 93.6% -> 94.1% (no loss). The rule is general: it protects any
+      surname-like company name, not only this entity (Vivek, 25 Oct 2026).
+      The distinct-word fix removed false matches such as "James James" vs
+      "JAMES KOANG CHUOL" (individuals 8.2 -> 6.9 per 10,000; test set
+      unchanged).

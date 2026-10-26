@@ -1,0 +1,130 @@
+sanctions_country_name,iso_code,method
+Afghanistan,AF,auto
+Albania,AL,auto
+Algeria,DZ,auto
+Angola,AO,auto
+Armenia,AM,auto
+Australia,AU,auto
+Austria,AT,auto
+Azerbaijan,AZ,auto
+Bangladesh,BD,auto
+Belarus,BY,auto
+Belgium,BE,auto
+Bosnia and Herzegovina,BA,auto
+Brazil,BR,auto
+Bulgaria,BG,auto
+Cambodia,KH,auto
+Cameroon,CM,auto
+Canada,CA,auto
+Cape Verde,CV,manual
+Central African Republic,CF,auto
+Chad,TD,auto
+China,CN,auto
+Colombia,CO,auto
+Comoros,KM,auto
+Congo,CG,manual
+Congo (Democratic Republic),CD,manual
+Croatia,HR,auto
+Cuba,CU,auto
+Cyprus,CY,auto
+DPRK,KP,manual
+Egypt,EG,auto
+El Salvador,SV,auto
+Equatorial Guinea,GQ,auto
+Eritrea,ER,auto
+Estonia,EE,auto
+Ethiopia,ET,auto
+Finland,FI,auto
+France,FR,auto
+Georgia,GE,auto
+Germany,DE,auto
+Greece,GR,auto
+Guatemala,GT,auto
+Guinea,GN,auto
+Guinea-Bissau,GW,auto
+Haiti,HT,auto
+Honduras,HN,auto
+India,IN,auto
+Indonesia,ID,auto
+Iran,IR,auto
+Iraq,IQ,auto
+Ireland,IE,auto
+Israel,IL,auto
+Italy,IT,auto
+Jordan,JO,auto
+Kazakhstan,KZ,auto
+Kenya,KE,auto
+Kosovo,XK,auto
+Kuwait,KW,auto
+Kyrgyzstan,KG,manual
+Laos,LA,manual
+Latvia,LV,auto
+Lebanon,LB,auto
+Libya,LY,auto
+Liechtenstein,LI,auto
+Lithuania,LT,auto
+Luxembourg,LU,auto
+Malaysia,MY,auto
+Mali,ML,auto
+Malta,MT,auto
+Marshall Islands,MH,auto
+Mauritania,MR,auto
+Mauritius,MU,auto
+Moldova,MD,auto
+Montenegro,ME,auto
+Morocco,MA,auto
+Myanmar,MM,auto
+Netherlands,NL,auto
+New Zealand,NZ,auto
+Nicaragua,NI,auto
+Niger,NE,auto
+Nigeria,NG,auto
+North Korea,KP,manual
+Norway,NO,auto
+Occupied Palestinian Territories,PS,manual
+Oman,OM,auto
+Pakistan,PK,auto
+Palestinian,PS,manual
+Panama,PA,auto
+Philippines,PH,auto
+Poland,PL,auto
+Portugal,PT,auto
+Qatar,QA,auto
+Romania,RO,auto
+Russia,RU,manual
+Rwanda,RW,auto
+Saudi Arabia,SA,auto
+Senegal,SN,auto
+Serbia,RS,auto
+Singapore,SG,auto
+Slovakia,SK,manual
+Somalia,SO,auto
+South Africa,ZA,auto
+South Korea,KR,manual
+South Sudan,SS,auto
+Spain,ES,auto
+Sri Lanka,LK,auto
+St Kitts and Nevis,KN,auto
+St Lucia,LC,auto
+Sudan,SD,auto
+Sweden,SE,auto
+Switzerland,CH,auto
+Syria,SY,manual
+Tajikistan,TJ,auto
+Tanzania,TZ,auto
+Thailand,TH,auto
+The Gambia,GM,manual
+Trinidad and Tobago,TT,auto
+Tunisia,TN,auto
+Turkey,TR,manual
+Uganda,UG,auto
+Ukraine,UA,auto
+United Arab Emirates,AE,auto
+United Kingdom,GB,auto
+United States,US,auto
+Uzbekistan,UZ,auto
+Vanuatu,VU,auto
+Venezuela,VE,auto
+Vietnam,VN,manual
+Yemen,YE,auto
+Zimbabwe,ZW,auto
