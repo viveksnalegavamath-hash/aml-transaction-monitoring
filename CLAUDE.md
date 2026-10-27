@@ -5,15 +5,11 @@ A company-grade anti-money-laundering (AML) transaction monitoring system built 
 - Full plan, phases and checklists: `docs/PROJECT_PLAN.md` — read it before starting or planning any phase.
 - Current status and the next step: `CLAUDE.local.md` (private, loaded automatically).
 
-## How to work with Vivek
+## Working style
 
-- He is new to software engineering. Before acting, say in plain English what we're doing, why, and what "done" looks like.
-- One small step at a time: propose a plan, wait for his OK, then do it. Never make large silent changes.
-- After each step, give one command to verify it and describe the expected output.
-- When he must act himself (GUI apps, browser logins, password prompts), give one command per code block and tell him to wait for the `%` prompt before the next.
-- Prefer writing files yourself over asking him to paste file contents.
-- He reviews complete drafts, then sends one consolidated list of changes.
-- Record every design decision in `LEARNING.md` (what, why, alternatives considered). It is his interview preparation.
+- Plan before acting: state what will change, why, and what "done" looks like.
+- Small, reviewed steps, each with a command that verifies it.
+- Record every design decision in `LEARNING.md`: what was decided, why, and the alternatives considered.
 
 ## Stack (decided — ask before changing)
 

@@ -158,6 +158,10 @@ Raw data is never committed. The results files in `docs/` are derived from SAML-
 - FastAPI service with API-key auth and rate limiting; Docker Compose; GitHub Actions CI (next).
 - Cut from this version, with the reasons recorded: R08 round-tripping (SAML-D has no 3–4-account cycles), network analysis, the IBM AMLworld out-of-sample test, daily customer risk scores, AWS deployment, n8n re-screening workflow, an AI analyst assistant, a Power BI dashboard, a real-time payment hold after a SAR.
 
+## Licence
+
+The code is released under the [MIT Licence](LICENSE). The data is not covered by it: each dataset keeps its own licence (see [Data and licences](#data-and-licences)).
+
 ## Author
 
 Vivek Nalegavamath — portfolio project for AML, KYC, RegTech and financial-crime data roles in the UK.

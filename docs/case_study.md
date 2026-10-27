@@ -141,7 +141,7 @@ The MLRO (the bank's nominated officer; FCA senior management function SMF17) de
 > - Staff reminded: do not tell the customer about the SAR or the investigation (s.333A).
 > - Records kept for at least five years (Money Laundering Regulations 2017, reg. 40).
 
-Had a DAML been needed, the timings are: the NCA has a **7 working day notice period** to refuse; if it refuses, a **31 day moratorium** follows, which a court can extend (up to 186 days in total, Criminal Finances Act 2017). Silence at the end of the notice period means the bank has a defence to proceed.
+Had a DAML been needed, the timings are: the NCA has a **7 working day notice period** to refuse; if it refuses, a **31 day moratorium** follows. A court can extend the moratorium, but by no more than 186 days in total beyond the initial 31 days (POCA s.336A(7), added by the Criminal Finances Act 2017), so up to 217 days altogether. Silence at the end of the notice period means the bank has a defence to proceed.
 
 ### SAR narrative (SYNTHETIC TRAINING EXAMPLE)
 
