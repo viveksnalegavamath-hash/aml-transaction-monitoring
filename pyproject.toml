@@ -1,7 +1,7 @@
 [project]
 name = "aml-transaction-monitoring"
 version = "0.1.0"
-description = "Add your description here"
+description = "AML transaction monitoring on synthetic UK data: typology rules, sanctions screening and honest evaluation"
 authors = [
     { name = "Vivek Nalegavamath", email = "242837689+viveksnalegavamath-hash@users.noreply.github.com" }
 ]
