@@ -30,3 +30,6 @@ CLAUDE.local.md
 
 # Tuning caches: candidate rows with (synthetic) account IDs, never commit
 data/tuning/
+
+# Trained models (pickles of our own runs on synthetic data), never commit
+data/ml/

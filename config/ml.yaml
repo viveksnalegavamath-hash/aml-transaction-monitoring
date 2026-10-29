@@ -1,0 +1,90 @@
+# ML model settings (Phase 3, fast-track step 7). Decided 27-29 Oct 2026.
+#
+# Unit: one active account-week (features.feat_account_week): an account with
+# at least one transaction sent or received in a Thursday-to-Wednesday week,
+# scored at the end of the week (week_end, the Wednesday).
+# Label: the account sent or received a suspicious transaction that week
+# (evaluation.eval_account_week_labels; joined only by the evaluation code).
+
+seed: 20261027
+
+# Time split (Vivek, 29 Oct 2026). A week belongs to the month of its
+# week_end, the day it is scored (like an alert's date for the rules).
+# Train and validation lie inside the rules' tuning months; Oct-Dec 2022 is
+# left out (90-day windows there start before the data does). Validation
+# chooses the model settings and stops the boosting early. The hold-out is
+# periods.holdout in config/evaluation.yaml (weeks ending 7 Jun - 23 Aug
+# 2023, exactly 12 weeks) and is scored once, at the end.
+split:
+  train:
+    start: 2023-01-01
+    end: 2023-04-30
+  validation:
+    start: 2023-05-01
+    end: 2023-05-31
+
+# Feature sets. "behaviour" = every column of feat_account_week except the
+# keys and the artefact_ columns. Rule hits come from the rules engine's
+# alerts: per enabled rule, alerts on the account dated in the 7 days up to
+# week_end, and the number of distinct rules alerting in the 30 days up to it.
+# The artefact set is a diagnostic only, never a candidate model.
+feature_sets:
+  ml_only: [behaviour]
+  rules_ml: [behaviour, rule_hits]
+  artefact_diagnostic: [behaviour, rule_hits, artefact]
+
+# Negatives kept for training (1.0 = all). If lower, a seeded random share of
+# negatives is kept and each gets weight 1 / share. Not needed at this size
+# (training data ~0.5 GB as float32).
+train_negative_share: 1.0
+
+logistic:
+  # Inputs: sign(x) * ln(1 + |x|), then standardised. Classes weighted to balance.
+  C: 1.0
+  max_iter: 2000
+
+xgboost:
+  fixed:
+    n_estimators: 3000
+    learning_rate: 0.05
+    subsample: 0.8
+    colsample_bytree: 0.8
+    min_child_weight: 5
+    tree_method: hist
+    eval_metric: aucpr
+    early_stopping_rounds: 100
+  # scale_pos_weight: "balanced" = negatives / positives in training;
+  # "sqrt" = its square root (milder).
+  grid:
+    max_depth: [4, 6]
+    scale_pos_weight: [balanced, sqrt]
+
+# The model per feature set is the one with the highest validation PR-AUC
+# (account-week level), decided before any hold-out score is seen.
+selection_metric: pr_auc
+
+# Plain-English SHAP reasons: one template per measure. {v} is the feature's
+# value; {dir} / {party} / {to_from} depend on money in or out; {w} is the window
+# in days; {s} is "s" unless the value is 1 (plurals); {ratio} = e^v for the
+# "vs history" features (their value is a log ratio).
+reasons:
+  directions:
+    in: {dir: received, party: sender, to_from: from}
+    out: {dir: sent, party: payee, to_from: to}
+  templates:
+    n: "{v:,.0f} payment{s} {dir} in {w} days"
+    gbp: "£{v:,.0f} {dir} in {w} days"
+    max_gbp: "largest payment {dir} in {w} days: £{v:,.0f}"
+    counterparties: "{v:,.0f} different {party}{s} in {w} days"
+    new_counterparties: "{v:,.0f} new {party}{s} in {w} days"
+    cash_share: "{v:.0%} of money {dir} in {w} days was cash"
+    cross_border_share: "{v:.0%} of money {dir} in {w} days was cross-border"
+    high_risk_share: "{v:.0%} of money {dir} in {w} days was {to_from} high-risk countries"
+    out_share: "{v:.0%} of money moved in {w} days went out again"
+    gbp_7_vs_history: "money {dir} this week was {ratio:,.1f}x the usual weekly amount"
+    max_vs_history: "largest payment {dir} this week was {ratio:,.1f}x the usual payment"
+    history_days: "account first seen {v:,.0f} day{s} before"
+    rule_hit: "rule {rule} ({rule_name}) alerted this week"
+    rules_30d: "{v:,.0f} different rule{s} alerted in 30 days"
+    artefact_is_customer: "account is a customer (artefact)"
+    artefact_out_to_customer_share_30: "{v:.0%} of payments in 30 days went to customers (artefact)"
