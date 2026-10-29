@@ -350,3 +350,23 @@ Code `src/aml_transaction_monitoring/api/`, settings `config/api.yaml`, `Dockerf
 - **CI:** GitHub Actions on every push and pull request runs `uv sync --frozen`, ruff check, ruff format check and pytest. The runner has no `.env`, database or data, so those tests skip themselves with a reason. The run was proven on a fresh local clone first (175 passed, 74 skipped, 0 failed), then on GitHub: same numbers, green on the first run. Actions are pinned to full commit SHAs, the token is read-only and no credentials are persisted. Alternative: a PostgreSQL service container in CI — not done, because the database tests need the 12 GB built data, which cannot be public.
 - **Not done from the fast-track list:** charts in the README (step 9 of the plan). The results are in tables; charts are listed as future work.
 - **In one line:** "The API reads through a database role that physically cannot see the labels, serves the model from a JSON export proven to score like the trained one, and runs as a non-root, read-only container on localhost, with CI on every push."
+
+## Dependency alerts and the README chart (29 Oct 2026)
+
+- **Dependabot: 11 open alerts fixed in one commit** (`5222e0b`):
+  - mlflow 3.16.1 → 3.17.2 (5 alerts, one critical)
+  - tornado 6.5.10 → 6.6 (3)
+  - gitpython 3.2.1, nbconvert 7.17.2, opentelemetry-api 1.45.1
+  - mlflow's floor in `pyproject.toml` raised to 3.17.2, so no future re-lock can fall back.
+  - GitHub showed 0 open alerts within a minute of the push; every alert had a fixed version.
+  - Checked before committing:
+    - MLflow upgraded its local run database itself, and all 25 runs still open (the database was backed up first).
+    - Only one upgraded package is in the API image: opentelemetry-api, which FastAPI depends on.
+- **Mistake, corrected (Vivek's catch).** Earlier pushes filtered "vulnerabilities" lines out of the push output, so new alerts (tornado, more mlflow) went unreported for several pushes. Push output is now shown in full. In one line: never filter warnings out of output someone else relies on.
+- **README chart: suspicious accounts caught against alerts per week** (`evaluation/ml_chart.py`, matplotlib). It reads only the committed hold-out report, never the database or labels, so the chart can always be regenerated from what is published.
+  - Log-scaled x-axis, from 197 to 5,053 alerts a week.
+  - One ML line (rules + ML). ML only is within 0.4 points at every volume; the code asserts this, so the caption cannot become false.
+  - The rules are a single operating point, with a guide line marking where the model first matches the rules' recall.
+  - Colours from the dataviz reference palette, checked with its validator for colour-vision deficiency in light and dark mode. Two images: the README shows the one matching the reader's theme.
+  - Labels in text colours, a legend plus selective direct labels, and the numbers repeated in a table under the chart.
+  - Gotcha: matplotlib resolves generic font names when the image is saved, so the font setting must also wrap `savefig`.

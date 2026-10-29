@@ -49,6 +49,18 @@ Full data, hold-out months **1 Jun – 23 Aug 2023** (thresholds were never tune
 - To match the rules' recall it needs **197 alerts a week instead of 5,053 (−96%)**.
 - Every ML alert carries its top three SHAP reasons in plain English, e.g. *"4 new payees in 7 days; 3 new senders in 7 days; 7 new senders in 30 days"*.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/alerts_vs_recall_dark.png">
+  <img src="docs/images/alerts_vs_recall_light.png" alt="Line chart of suspicious accounts caught against alerts per week, log scale. The tuned rules catch 58.6% of suspicious accounts at 5,053 alerts a week. The rules + ML model catches 67.4% at 250 alerts a week, 89.2% at 500, 96.7% at 1,000, 99.5% at 2,500 and 99.8% at 5,053, and matches the rules' 58.6% with 197 alerts a week.">
+</picture>
+
+*Same hold-out at every weekly volume reported in [`ml_evaluation.md`](docs/results/ml_evaluation.md). ML only (without rule hits) is within 0.4 points of rules + ML at every volume, so one ML line is drawn. Made with matplotlib: `uv run python -m aml_transaction_monitoring.evaluation.ml_chart`.*
+
+| Alerts per week | 197 | 250 | 500 | 1,000 | 2,500 | 4,169 | 5,053 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Rules + ML: suspicious accounts caught | ≥ 58.6% | 67.4% | 89.2% | 96.7% | 99.5% | 99.8% | 99.8% |
+| Tuned rules | | | | | | | 58.6% |
+
 **Read with care:** SAML-D makes this easy. 91% of laundering weeks involve a never-seen counterparty, against 12% of normal weeks, and real data would score far lower. The SAML-D "receiver is a customer" artefact was left out; it would have raised PR-AUC to 0.800. Rule hits add almost nothing on top of the behaviour features. Model documentation: [`docs/model.md`](docs/model.md); results: [`ml_evaluation.md`](docs/results/ml_evaluation.md), [`ml_validation.md`](docs/results/ml_validation.md).
 
 **Sanctions screening (S01)**, against the UK Sanctions List of 02 Oct 2026, fuzzy matching at a threshold of 90:
@@ -111,7 +123,7 @@ rules/            R01–R10 and S01 YAML specs (all thresholds live here)
 config/           generator, evaluation periods, tuning grids, ML and API settings
 dbt/              staging, marts, features, evaluation models, seeds, tests
 sql/profiling/    data profiling and leakage checks
-tests/            pytest (249 tests; 175 need no database and run in CI)
+tests/            pytest (255 tests; 181 need no database and run in CI)
 docs/             project plan, results, worked case, model documentation
 Dockerfile        API image; docker-compose.yml runs it next to PostgreSQL
 .github/          CI workflow: ruff and tests on every push
@@ -230,7 +242,7 @@ Raw data is never committed. The results files in `docs/` are derived from SAML-
 
 ## Future work
 
-- Charts of the results in this README (planned as the Power BI replacement; the results are in tables for now).
+- More charts in this README (the Power BI replacement): one so far, alerts per week against suspicious accounts caught.
 - Cut from this version, with the reasons recorded: R08 round-tripping (SAML-D has no 3–4-account cycles), network analysis, the IBM AMLworld out-of-sample test, daily customer risk scores, AWS deployment, n8n re-screening workflow, an AI analyst assistant, a Power BI dashboard, a real-time payment hold after a SAR.
 
 ## Licence
