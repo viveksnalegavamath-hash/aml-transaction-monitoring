@@ -25,3 +25,21 @@ models:
         data_tests: [not_null]
       - name: is_suspicious_typology
         data_tests: [not_null]
+
+  - name: eval_account_week_labels
+    description: >
+      EVALUATION ONLY: the ML answer key. One row per account-week (week_end =
+      the Wednesday ending a Thursday-to-Wednesday week, macro week_end) in which
+      the account sent or received at least one suspicious transaction; every
+      other active account-week is negative. Never read by features or models;
+      joined to features.feat_account_week only by the evaluation code. A unique
+      index on (account_id, week_end) enforces one row per account-week.
+    columns:
+      - name: account_id
+        data_tests: [not_null]
+      - name: week_end
+        data_tests: [not_null]
+      - name: suspicious_transactions
+        data_tests: [not_null, is_positive]
+      - name: typologies
+        data_tests: [not_null]

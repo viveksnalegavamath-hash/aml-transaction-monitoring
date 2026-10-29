@@ -1,0 +1,41 @@
+version: 2
+
+models:
+  - name: feat_account_week
+    description: >
+      ML features (Phase 3): one row per active account-week (an account with
+      at least one transaction sent or received in a Thursday-to-Wednesday
+      week; week_end = the Wednesday, when the week is scored). Every feature
+      looks back from week_end over exact 7-, 30- and 90-day windows and uses
+      only transactions dated on or before week_end (proven by test
+      feat_account_week_point_in_time). No label: labels are in
+      evaluation.eval_account_week_labels. Columns starting with artefact_ are
+      NOT model features (SAML-D artefact, whole-period customer list); they
+      exist only to measure that artefact's effect separately. One row per
+      account and week: enforced by a unique index on (account_id, week_end),
+      so a duplicate fails the build itself.
+    columns:
+      - name: account_id
+        data_tests: [not_null]
+      - name: week_end
+        description: The Wednesday that ends the scoring week (macro week_end).
+        data_tests: [not_null]
+      - name: history_days
+        description: Days since the account's first transaction in the data (the data starts on 7 Oct 2022).
+        data_tests: [not_null]
+      - name: in_gbp_7_vs_history
+        description: ln((1 + money in this week) / (1 + average weekly money in over days 8-90)). 0 = as usual.
+        data_tests: [not_null]
+      - name: out_gbp_7_vs_history
+        description: ln((1 + money out this week) / (1 + average weekly money out over days 8-90)).
+        data_tests: [not_null]
+      - name: in_max_vs_history
+        description: ln((1 + largest payment received this week) / (1 + average payment received over days 8-90)).
+        data_tests: [not_null]
+      - name: out_max_vs_history
+        description: ln((1 + largest payment sent this week) / (1 + average payment sent over days 8-90)).
+        data_tests: [not_null]
+      - name: artefact_is_customer
+        description: NOT A FEATURE. The account ever sends money in the data (whole period, future included).
+      - name: artefact_out_to_customer_share_30
+        description: NOT A FEATURE. Share of payments sent in 30 days whose receiver is a customer (SAML-D artefact).

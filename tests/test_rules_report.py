@@ -123,9 +123,11 @@ def test_matrix_is_share_of_each_typology_caught() -> None:
 
 
 def test_only_evaluation_code_reads_the_label_table() -> None:
+    # Both label tables: per transaction (rules) and per account-week (ML).
     label_table = re.compile(
-        r"evaluation(_sample)?[\"']?\.[\"']?eval_transaction_labels|\{labels\}"
+        r"evaluation(_sample)?[\"']?\.[\"']?eval_\w+_labels|\{labels\}"
     )
+    assert label_table.search("from {labels}.eval_account_week_labels")
     offenders = [
         p.relative_to(SRC)
         for p in SRC.rglob("*.py")

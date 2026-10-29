@@ -34,6 +34,10 @@ models:
     marts:
       +schema: marts
       +materialized: table
+    features:
+      # ML features per account-week (Phase 3). No label.
+      +schema: features
+      +materialized: table
     evaluation:
       # Suspicious label and typology only. Never read by rules or features.
       +schema: evaluation

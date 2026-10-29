@@ -1,4 +1,4 @@
-"""The suspicious label must never reach staging or mart models (no database needed).
+"""The suspicious label must never reach staging, mart or feature models (no database needed).
 
 Only `dbt/models/evaluation/` may read the label columns or the typology seed.
 Comments are ignored, so a model may say in a comment that it leaves the label out.
@@ -34,7 +34,7 @@ def test_label_in_code_is_found() -> None:
     assert LABEL_REFERENCES.search(strip_comments("select s.is_laundering from s"))
 
 
-@pytest.mark.parametrize("folder", ["staging", "marts"])
+@pytest.mark.parametrize("folder", ["staging", "marts", "features"])
 def test_models_never_read_the_label(folder: str) -> None:
     files = model_files(folder)
     assert files, f"no models found in dbt/models/{folder}"
