@@ -16,9 +16,11 @@ from xgboost import XGBClassifier
 from aml_transaction_monitoring.db import get_connection
 from aml_transaction_monitoring.evaluation.ml_experiment import (
     Dataset,
+    Split,
     holdout,
     holdout_period,
     load_config,
+    smallest_matching_volume,
     training_rows,
     week_end_range,
 )
@@ -35,6 +37,7 @@ from aml_transaction_monitoring.evaluation.rules_report import (
     load_config as load_evaluation_config,
 )
 from aml_transaction_monitoring.ml.features import (
+    Features,
     columns_for,
     feature_groups,
     load_features,
@@ -446,3 +449,30 @@ def test_every_feature_column_has_a_reason_template() -> None:
     )
     for name in columns_for(["behaviour", "rule_hits", "artefact"], groups):
         assert describe(name, 2.0, CONFIG["reasons"], RULE_NAMES)
+
+
+def test_smallest_matching_volume_finds_the_fewest_weekly_alerts() -> None:
+    weeks = np.array(["2023-06-07"] * 4, dtype="datetime64[D]")
+    keys = pd.DataFrame({"account_id": ["A", "B", "C", "D"], "week_end": weeks})
+    features = Features(keys, np.zeros((4, 1), dtype=np.float32), ["x"])
+    period = Period("holdout", date(2023, 6, 1), date(2023, 6, 7))
+    suspicious = pd.DataFrame(
+        {
+            "account_id": ["A", "C"],
+            "transaction_ts": [ts("2023-06-02 10:00"), ts("2023-06-03 10:00")],
+            "typology": ["fan_out", "fan_out"],
+        }
+    )
+    suspicious["transaction_date"] = suspicious["transaction_ts"].dt.date
+    split = Split(
+        period,
+        features,
+        np.array([1, 0, 1, 0]),
+        Truth(period, 30, suspicious, 4),
+        pd.DataFrame(),
+    )
+    # Ranking: A first, B second, C third: catching both needs 3 alerts a week.
+    score = np.array([0.9, 0.8, 0.7, 0.1], dtype=np.float32)
+    assert smallest_matching_volume(split, score, target_accounts=1, k_max=4) == 1
+    assert smallest_matching_volume(split, score, target_accounts=2, k_max=4) == 3
+    assert smallest_matching_volume(split, score, target_accounts=2, k_max=2) is None

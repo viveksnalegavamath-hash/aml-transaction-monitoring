@@ -787,6 +787,30 @@ def rules_week_score(split: Split, rule_ids: list[str]) -> np.ndarray:
     return (hits > 0).sum(axis=1).astype(np.float32)
 
 
+def smallest_matching_volume(
+    split: Split, score: np.ndarray, target_accounts: int, k_max: int
+) -> int | None:
+    """Smallest weekly volume whose alerts catch at least `target_accounts`
+    suspicious accounts (None if even k_max does not). Top-k alerts are nested
+    as k grows, so accounts caught never fall and a binary search is exact."""
+
+    def caught(k: int) -> int:
+        return score_alerts(
+            alerts_at_volume(split, score, k), split.truth
+        ).caught_accounts
+
+    if caught(k_max) < target_accounts:
+        return None
+    low, high = 1, k_max
+    while low < high:
+        middle = (low + high) // 2
+        if caught(middle) >= target_accounts:
+            high = middle
+        else:
+            low = middle + 1
+    return low
+
+
 def holdout(
     ds: Dataset, config: dict[str, Any], evaluation: dict[str, Any], again: bool
 ) -> None:
@@ -877,6 +901,28 @@ def holdout(
                 )
             )
 
+        # Decided before the hold-out was opened (validation showed near-full
+        # recall at the rules' volume): recall at smaller volumes, and the
+        # smallest volume that catches as many suspicious accounts as the rules.
+        curve: list[Row] = []
+        matching: dict[str, int | None] = {}
+        for feature_set in CANDIDATE_SETS:
+            key = selected[feature_set]
+            for volume in config["volume_curve"]:
+                alerts = alerts_at_volume(split, scores[key], volume)
+                curve.append(
+                    Row(
+                        f"{SET_LABELS[feature_set]} at {volume:,}/week",
+                        score_alerts(alerts, split.truth),
+                        pr_auc(split.y, scores[key]),
+                        alerts,
+                        feature_set,
+                    )
+                )
+            matching[feature_set] = smallest_matching_volume(
+                split, scores[key], rows[0].score.caught_accounts, k
+            )
+
         examples = {}
         for feature_set in CANDIDATE_SETS:
             key = selected[feature_set]
@@ -920,22 +966,37 @@ def holdout(
                     f"{prefix}_lift": row.score.lift or 0.0,
                 }
             )
+        mlflow.log_metrics(
+            {f"match_volume_{s}": v for s, v in matching.items() if v is not None}
+        )
         mlflow.log_text(
             "\n".join(f"row{i}: {r.name}" for i, r in enumerate(rows)), "rows.txt"
         )
 
     report = render_holdout(
-        rows, sensitivity, split, k, k_distinct, manifest, examples, ds, name
+        rows,
+        sensitivity,
+        curve,
+        matching,
+        split,
+        k,
+        k_distinct,
+        manifest,
+        examples,
+        ds,
+        name,
     )
     finish(report, ds, report_path)
     if not ds.sample:
-        write_holdout_csv(rows + sensitivity, output_dir / "ml_evaluation.csv")
+        write_holdout_csv(rows + sensitivity + curve, output_dir / "ml_evaluation.csv")
     logger.info("Peak memory %.0f MB", peak_memory_mb())
 
 
 def render_holdout(
     rows: list[Row],
     sensitivity: list[Row],
+    curve: list[Row],
+    matching: dict[str, int | None],
     split: Split,
     k: int,
     k_distinct: int,
@@ -993,6 +1054,36 @@ def render_holdout(
         ]
         for t in typologies
     ]
+    volumes = sorted({r.score.alerts_per_week for r in curve})
+    curve_body = []
+    for volume in volumes:
+        cells = [f"{volume:,.0f}"]
+        for feature_set in CANDIDATE_SETS:
+            (r,) = [
+                c
+                for c in curve
+                if c.note == feature_set and c.score.alerts_per_week == volume
+            ]
+            cells += [
+                pct(r.score.account_recall),
+                pct(r.score.precision),
+                "–" if r.score.lift is None else f"{r.score.lift:.1f}×",
+            ]
+        curve_body.append(cells)
+    curve_header = ["Alerts / week"] + [
+        f"{SET_LABELS[s]}: {m}"
+        for s in CANDIDATE_SETS
+        for m in ("account recall", "precision", "lift")
+    ]
+    matching_text = "; ".join(
+        f"{SET_LABELS[s]}: "
+        + (
+            "not reached at the rules' volume"
+            if v is None
+            else f"**{v:,} a week** ({1 - v / k:.0%} fewer alerts than the rules' {k:,})"
+        )
+        for s, v in matching.items()
+    )
     example_lines = []
     for feature_set, frame in examples.items():
         top = frame.sort_values(["week_end", "score"], ascending=[False, False]).head(3)
@@ -1045,6 +1136,21 @@ def render_holdout(
         f"## Sensitivity: models at the rules' distinct account-weeks ({k_distinct:,} a week)",
         "",
         md_table(header, [line(rules_row)] + [line(r) for r in sensitivity]),
+        "",
+        "## Fewer alerts: recall at smaller weekly volumes",
+        "",
+        (
+            "Decided before the hold-out was opened, because validation showed the models "
+            "catching almost every suspicious account at the rules' volume: the same "
+            "models at smaller weekly volumes (top alerts of each week)."
+        ),
+        "",
+        md_table(curve_header, curve_body),
+        "",
+        (
+            "Smallest weekly volume that catches at least as many suspicious accounts as "
+            f"the rules ({rules_row.score.caught_accounts:,}): {matching_text}."
+        ),
         "",
         "## Suspicious accounts: rules vs rules + ML",
         "",

@@ -63,6 +63,13 @@ xgboost:
 # (account-week level), decided before any hold-out score is seen.
 selection_metric: pr_auc
 
+# Extra hold-out view, decided 29 Oct 2026 BEFORE the hold-out was opened:
+# on the validation weeks the models caught almost every suspicious account
+# at the rules' volume, so the hold-out also reports recall at these smaller
+# weekly volumes and the smallest volume that catches as many suspicious
+# accounts as the rules.
+volume_curve: [250, 500, 1000, 2500]
+
 # Plain-English SHAP reasons: one template per measure. {v} is the feature's
 # value; {dir} / {party} / {to_from} depend on money in or out; {w} is the window
 # in days; {s} is "s" unless the value is 1 (plurals); {ratio} = e^v for the
