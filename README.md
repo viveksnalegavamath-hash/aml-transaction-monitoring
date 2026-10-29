@@ -1,10 +1,10 @@
 # AML Transaction Monitoring System
 
-An anti-money-laundering (AML) transaction monitoring system of the kind UK banks run, built end to end on **9.5 million synthetic, UK-focused transactions**. Typology rules raise alerts, every alert explains itself in plain English, customers are screened against the UK Sanctions List, and the results are measured honestly: thresholds tuned on one period, reported on a later, untouched one.
+An anti-money-laundering (AML) transaction monitoring system of the kind UK banks run, built end to end on **9.5 million synthetic, UK-focused transactions**. Typology rules raise alerts, an XGBoost model ranks every active account each week, every alert explains itself in plain English, customers are screened against the UK Sanctions List, and the results are measured honestly: thresholds and models chosen on one period, reported on a later, untouched one.
 
 > All transactions and customers are **synthetic** (SAML-D and a Faker-generated KYC table). No real personal data is used. The sanctions, FATF and World Bank data are public official lists.
 
-**Status:** Phase 2 done (data, rules, tuning, sanctions screening, worked case). Next: an XGBoost model with SHAP reasons compared against the rules on the same hold-out, then a FastAPI service with Docker Compose and CI.
+**Status:** data, rules, tuning, sanctions screening, worked case and the ML layer (XGBoost with SHAP reasons, compared with the rules on the same hold-out) are done. Next: a FastAPI service with Docker Compose and CI.
 
 ## Results at a glance
 
@@ -35,6 +35,20 @@ Full data, hold-out months **1 Jun – 23 Aug 2023** (thresholds were never tune
 
 **Reading it honestly:** tuning cut alerts by 77% on the untouched months and made every tuned rule sharper, but recall fell below the 65% goal, a goal that **was** met on the tuning months (78.5%). The miss is reported as it came out; re-tuning on the hold-out would have turned it into a second tuning set. Recovering recall at the same alert volume is the job of the ML layer. Full reports: [`docs/results/rules_evaluation.md`](docs/results/rules_evaluation.md) (tuned), [`rules_evaluation_baseline.md`](docs/results/rules_evaluation_baseline.md), tuning tables [`tuning_R03.md`](docs/results/tuning_R03.md) · [`R06`](docs/results/tuning_R06.md) · [`R07`](docs/results/tuning_R07.md).
 
+**Rules vs ML on the same hold-out, same alert volume.** An XGBoost model scores every active account once a week, using 56 behaviour features: rolling 7/30/90-day counts, totals, new counterparties, cash and cross-border shares, and amounts against the account's own history. A second variant adds the rules' alerts as features. Both models were chosen on May 2023 and scored on the hold-out **once**, at the rules' 5,053 alerts a week:
+
+| Hold-out (1 Jun – 23 Aug 2023) | Precision | Lift | Account recall | PR-AUC |
+| --- | --- | --- | --- | --- |
+| Rules only (tuned) | 3.4% | 6.7× | 58.6% | 0.007 |
+| ML only | 9.7% | 18.9× | 99.8% | 0.770 |
+| **Rules + ML** | **9.7%** | **19.0×** | **99.8%** | **0.771** |
+
+- At the same volume, rules + ML catches **1,027 suspicious accounts the rules missed** and misses only 1 the rules caught.
+- To match the rules' recall it needs **197 alerts a week instead of 5,053 (−96%)**.
+- Every ML alert carries its top three SHAP reasons in plain English, e.g. *"4 new payees in 7 days; 3 new senders in 7 days; 7 new senders in 30 days"*.
+
+**Read with care:** SAML-D makes this easy. 91% of laundering weeks involve a never-seen counterparty, against 12% of normal weeks, and real data would score far lower. The SAML-D "receiver is a customer" artefact was left out; it would have raised PR-AUC to 0.800. Rule hits add almost nothing on top of the behaviour features. Model documentation: [`docs/model.md`](docs/model.md); results: [`ml_evaluation.md`](docs/results/ml_evaluation.md), [`ml_validation.md`](docs/results/ml_validation.md).
+
 **Sanctions screening (S01)**, against the UK Sanctions List of 02 Oct 2026, fuzzy matching at a threshold of 90:
 
 | Measure | Result |
@@ -59,15 +73,21 @@ flowchart LR
     R -->|dbt: staging, marts, tests| M[(marts)]
     M --> E[Rules engine<br/>YAML thresholds + SQL]
     E --> AL[(alerts<br/>with reasons)]
+    M -->|dbt| F[(account-week<br/>features)]
+    AL --> F
+    F --> ML[XGBoost<br/>+ SHAP reasons]
+    ML --> MA[(ml_alerts<br/>with reasons)]
     M --> S[S01 sanctions screening<br/>rapidfuzz]
     AL --> EV[Evaluation<br/>labels joined only here]
+    MA --> EV
     EV --> D[docs/results]
 ```
 
-- **Data and modelling:** raw files load unchanged into PostgreSQL with an audit log. **dbt** cleans and types them, maps countries to ISO codes, joins FATF status and an internal country rating (World Bank governance indicators, split into thirds), and tests every assumption: row counts, keys, accepted values, one common amount scale. 96 dbt tests in total.
+- **Data and modelling:** raw files load unchanged into PostgreSQL with an audit log. **dbt** cleans and types them, maps countries to ISO codes, joins FATF status and an internal country rating (World Bank governance indicators, split into thirds), and tests every assumption: row counts, keys, accepted values, one common amount scale. 112 dbt tests in total.
 - **Rules engine:** each rule is a YAML spec (thresholds, rationale, owner, dated change log) plus a SQL file. Results are written to `marts.alerts` with a plain-English reason and the transactions behind each alert. Results stream from the database in batches, so a full run of all rules over 9.5M rows takes about 28 minutes with under 2 GB of memory.
 - **Evaluation:** split by **time**, never randomly. Tuning months are Oct 2022 – May 2023; the hold-out is Jun – Aug 2023. The laundering label is joined only in evaluation code, after alerts exist, and is never used in rules or features. Every rule is scored the same way, by alerted account and alert time.
 - **Tuning:** above/below-the-line testing on the tuning months only. Candidates are generated once and filtered for each option, and the tuning shortcut was checked against the slow, trusted path before use.
+- **ML layer:** one row per active account-week, with features computed in dbt from exact 7/30/90-day windows that end on the scoring day. A brute-force test proves no feature uses a later transaction. Training uses weeks scored January–April 2023; May chooses the settings and stops the boosting early; the hold-out is scored once, and the code refuses to score it twice. A logistic regression baseline and XGBoost runs are tracked in MLflow. Alerts are the top accounts of each week, at a fixed capacity, each with its top three TreeSHAP reasons.
 - **Sanctions screening:** normalised names (accents, titles, legal suffixes), rapidfuzz word-order and subset scoring, and date of birth and nationality used to set the review priority. These never drop a match, because a missed sanctions hit is an offence.
 - **Decisions are written down:** [`LEARNING.md`](LEARNING.md) records every design decision with the alternatives considered, including the ones that did not work.
 
@@ -78,13 +98,14 @@ src/aml_transaction_monitoring/
     ingestion/    loaders, synthetic KYC generator, country risk, FX rates
     rules/        rules engine and one SQL file per rule
     screening/    S01 sanctions screening
-    evaluation/   rules report and tuning harness
+    ml/           account-week features, models, SHAP reasons (no labels)
+    evaluation/   rules report, tuning harness, ML training and evaluation
 rules/            R01–R10 and S01 YAML specs (all thresholds live here)
-config/           generator, evaluation periods, tuning grids
-dbt/              staging, marts, evaluation models, seeds, tests
+config/           generator, evaluation periods, tuning grids, ML settings
+dbt/              staging, marts, features, evaluation models, seeds, tests
 sql/profiling/    data profiling and leakage checks
-tests/            pytest (183 tests)
-docs/             project plan, results, worked case
+tests/            pytest (220 tests)
+docs/             project plan, results, worked case, model documentation
 ```
 
 ## How to run
@@ -119,7 +140,11 @@ Prerequisites: Docker Desktop, [uv](https://docs.astral.sh/uv/), a Kaggle accoun
    uv run python -m aml_transaction_monitoring.rules.engine
    uv run python -m aml_transaction_monitoring.evaluation.rules_report
    uv run python -m aml_transaction_monitoring.screening.screen
+   uv run python -m aml_transaction_monitoring.evaluation.ml_experiment validate
+   uv run python -m aml_transaction_monitoring.evaluation.ml_experiment holdout
    ```
+
+   The ML hold-out stage runs once; it refuses to overwrite its own report. MLflow runs go to `mlruns/` and trained models to `data/ml/` (both git-ignored).
 
    For development, `dbt build --vars '{dev_sample: true}'` and the `--sample` flags work on a 10% account sample. Reported numbers always come from the full data.
 
@@ -151,10 +176,10 @@ Raw data is never committed. The results files in `docs/` are derived from SAML-
 - **R01 never fires.** SAML-D's structuring deposits average about £5,246, below the textbook "just under £10,000" band. The band was kept rather than fitted to one synthetic generator.
 - **Lists from a later date.** Country risk and the sanctions list (2026) are applied to 2023 activity.
 - **Single train/test split.** One tuning period and one hold-out, with no rolling re-validation yet.
+- **ML results are flattered by the data.** SAML-D's laundering almost always involves a new counterparty, a far cleaner signal than real data offers, where normal customers also pay new people and launderers reuse accounts. The method transfers; the near-perfect recall would not (see [`docs/model.md`](docs/model.md)).
 
 ## Future work
 
-- XGBoost with SHAP reasons on each alert; rules vs rules + ML at the same alert volume (next).
 - FastAPI service with API-key auth and rate limiting; Docker Compose; GitHub Actions CI (next).
 - Cut from this version, with the reasons recorded: R08 round-tripping (SAML-D has no 3–4-account cycles), network analysis, the IBM AMLworld out-of-sample test, daily customer risk scores, AWS deployment, n8n re-screening workflow, an AI analyst assistant, a Power BI dashboard, a real-time payment hold after a SAR.
 

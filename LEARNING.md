@@ -274,3 +274,50 @@ Spec `rules/S01_sanctions.yaml` (version 2), code `src/aml_transaction_monitorin
 - **What the analysts deliberately did not use as evidence:** the outflow/inflow gap (SAML-D has no balances), the declared income (synthetic and independent of the transactions), and an unexplained burst of payments that had no link to the cash. In one line: say what the data cannot support.
 - **UK process shown:** internal report to the nominated officer (POCA s.330), the MLRO's own decision (s.331, SMF17), SAR through the NCA SAR Portal, tipping off (s.333A), when a DAML is needed (7 working day notice period, 31 day moratorium), a further SAR quoting the first reference when activity continues, five-year record keeping (MLR 2017 reg. 40). Gap found: after a SAR, a live system needs a payment hold so the next matching payment waits for a DAML; this project has none (future work).
 - **In one line:** "In my worked case the trigger alert was on normal activity; reviewing the whole customer found five cash deposits each forwarded within two days to a new overseas beneficiary, and those ten transactions were exactly the ones labelled as laundering. The customer with the most rules firing was entirely normal, which is why I rank alerts with ML rather than count rules."
+
+## Phase 3 — ML layer: XGBoost with SHAP reasons vs the rules (27–29 Oct 2026)
+
+Model documentation: `docs/model.md`. Results: `docs/results/ml_validation.md` (model choice), `docs/results/ml_evaluation.md` (hold-out, scored once). Settings: `config/ml.yaml`.
+
+- **Unit = account-week, scored at the end of the week; label = a suspicious transaction sent or received that week** (Vivek's specification). Why weekly: a team works a weekly queue, and one row per active account per week (5.2M rows) is small enough for one model. Alternative: per transaction — rejected, because 9.5M rows at a 0.1% positive rate is harder to train on, and per-transaction alerts would not compare like for like with rule alerts on accounts.
+- **Weeks run Thursday to Wednesday.** Both evaluation periods end on a Wednesday (31 May, 23 Aug 2023) and the hold-out starts on a Thursday, so every week lies wholly in one period and the hold-out is exactly 12 weeks. One dbt macro (`week_end`) defines the week for both features and labels. Alternative: ISO weeks (Monday start) — rejected, because the first and last hold-out weeks would straddle periods.
+- **Features in dbt, exact 7/30/90-day windows ending on the scoring day.**
+  - Sums slide along a window; distinct counterparties cannot (no `count(distinct)` over a window in PostgreSQL), so they are running totals of +1 / −1 events. A contact on day d keeps the pair in an n-day window for window ends d to d + n − 1.
+  - Amounts are summed in whole pence: exact, and integer sums slide in constant time.
+  - Alternative: week-aligned windows (7/28/91 days) — the same complexity, and not what was asked.
+- **Point in time, proven rather than assumed (Vivek's check).** A dbt test recomputes every windowed feature by brute force for 1 in 256 accounts, from transactions dated on or before the week's end only, and compares.
+  - To prove the test is not vacuous, the 30-day window was made to look one day ahead: it failed on 354 rows.
+  - A first attempt (breaking the 7-day window) crashed the build instead — the history ratio took the log of a negative number — so it proved nothing about the test. Lesson: check that the test itself fails, not just that something fails.
+  - Rule hits count only alerts dated on or before the week's end (pytest).
+- **Built in 8 account chunks.** One statement on the full data needed an estimated 14 GB of temporary sort space (2.6 GB on the sample × 5.3), against 18 GB of free disk and Vivek's 10 GB floor. Every window is per account, so the model body builds chunk 0 and seven post-hooks insert chunks 1–7, each a separate statement whose temporary files are freed before the next. Also: the transactions CTE marked `not materialized` (otherwise PostgreSQL copies the whole table to temporary disk) and `work_mem` 256 MB for this model only. Measured peak: 1.66 GB on the full data, minimum free disk 15.7 GB, 18/18 dbt tests. Lesson: measure the peak of a heavy query on the sample and scale it before running it at full size.
+- **The SAML-D "receiver is a customer" flag is left out** (Vivek), kept as `artefact_` columns only for a diagnostic. It is a generator artefact, and the customer list covers the whole period, so it also looks ahead. Effect: hold-out PR-AUC 0.771 → 0.800 with it.
+- **Labels in the `evaluation` schema** (`eval_account_week_labels`, Vivek's check). The `ml/` package never reads labels (test); training and scoring that need labels live in `evaluation/ml_experiment.py`, the same rule as for the rules report.
+- **Split (Vivek): train on weeks scored January–April 2023, validate on May (settings and early stopping), hold-out June–August scored once.** October–December 2022 is not used, because the 90-day windows would start before the data does. No refit on January–May after choosing: the model kept is the one early-stopped on May. Alternative: refit on all five months with a fixed number of trees — rejected, because May would then no longer be an untouched check.
+- **The metric code had to reproduce the rules report before producing any number.** Applied to the rules' own alerts, it matched every rule's precision and account recall, plus "any rule", on the tuning months (before validation) and on the hold-out (before scoring it). Same lesson as tuning: validate a new path against the trusted one first.
+- **Rules vs ML at the same weekly alert volume** (Vivek): each model raises the top 5,053 account-weeks of every week, the tuned rules' average. A rule alert counts as one alert even when the same account has several in a week, so the rules review only 4,169 distinct account-weeks a week. A sensitivity table holds the models to that number too, so ML gets no extra capacity.
+- **"Rules + ML" = the same XGBoost with the rule hits as extra features.** Alternative: keep the rule alerts and re-rank them with ML — not chosen; at a fixed volume the two meet in the same place, and one model is simpler to explain.
+- **The hold-out stage refuses to run twice.** Once `docs/results/ml_evaluation.md` exists it stops, unless `--again` is given to reproduce the same saved models. On the dev sample the hold-out stage is a dry run on the May weeks, because sampled accounts are part of the hold-out too.
+- **Validation (May):** logistic regression PR-AUC 0.059; XGBoost 0.63–0.71. Selected for both feature sets: depth 6, square-root class weight (ML only 0.7095, rules + ML 0.7142). Square-root weighting beat full balancing at both depths. A likely reason: full balancing weights each positive about 440 times, which helps the model find positives in general but blurs the order at the very top, and PR-AUC rewards that order.
+- **A view added before opening the hold-out.** On May the models caught 99.8% of suspicious accounts at the rules' volume (rules 43.1%). At that volume recall saturates: there are only about 220–270 positive account-weeks a week for 5,000 alerts. So the hold-out stage also reports recall at 250, 500, 1,000 and 2,500 alerts a week, and the smallest volume that matches the rules. Committed (`f7b8b8d`) before the hold-out was opened. In one line: decide what you will report before you see the number.
+- **Hold-out, scored once (29 Oct 2026), no changes after:**
+
+| Hold-out (1 Jun – 23 Aug 2023) | Alerts/week | Precision | Lift | Account recall | PR-AUC |
+| --- | --- | --- | --- | --- | --- |
+| Rules only (tuned) | 5,053 | 3.4% | 6.7× | 58.6% | 0.007 |
+| ML only (XGBoost) | 5,053 | 9.7% | 18.9× | 99.8% | 0.770 |
+| Rules + ML (XGBoost) | 5,053 | 9.7% | 19.0× | 99.8% | 0.771 |
+| Rules + ML, logistic regression | 5,053 | 7.3% | 14.2× | 97.1% | 0.077 |
+| Rules + ML (XGBoost) | 250 | 73.3% | 143× | 67.4% | – |
+
+  - Rules + ML catches 1,027 suspicious accounts the rules missed and misses 1 they caught.
+  - It matches the rules' recall at 197 alerts a week (−96%).
+  - Behavioural change typologies: rules 12.5% and 15.6% of accounts, model 97.9% and 100%.
+  - Rule hits add almost nothing (0.771 vs 0.770).
+- **Why the numbers are so high, and why they would not transfer:**
+  - 90.9% of positive account-weeks involve a never-seen counterparty, against 11.5% of normal ones.
+  - A typical suspicious account has 179 normal transactions and one laundering transaction.
+  - Counterparty features dominate the SHAP reasons.
+  - SAML-D generates laundering in a way that is very easy to separate. Real data, where normal customers also pay new people and labels are incomplete, would score far lower.
+  - Stated in the README and the model documentation, next to the numbers. In one line: "On SAML-D, ML caught 99.8% of suspicious accounts at the rules' alert volume, and matched the rules' recall with 96% fewer alerts — but 91% of laundering weeks in this synthetic data involve a never-seen counterparty, so I present the method, not the number, as what transfers to a bank."
+- **No down-sampling needed:** training on 1.95M rows × 65 features in float32 took about 3.4 GB at peak (limit 6 GB); the hold-out run took 1.9 GB. Free disk never fell below 15 GB.
+- **SHAP reasons are stored with each alert** (`marts.ml_alerts`: feature, value, SHAP value and the sentence). A test checks that the TreeSHAP values add up to the model's output. Some reasons are absence signals ("0 new payees in 90 days"), so analysts read them as "unusual compared with a typical account", not as evidence in themselves.
