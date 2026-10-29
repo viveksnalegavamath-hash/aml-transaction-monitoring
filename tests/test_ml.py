@@ -476,3 +476,24 @@ def test_smallest_matching_volume_finds_the_fewest_weekly_alerts() -> None:
     assert smallest_matching_volume(split, score, target_accounts=1, k_max=4) == 1
     assert smallest_matching_volume(split, score, target_accounts=2, k_max=4) == 3
     assert smallest_matching_volume(split, score, target_accounts=2, k_max=2) is None
+
+
+def test_one_account_can_be_loaded_on_its_own(feature_db) -> None:
+    conn, schema = feature_db
+    s = sql.Identifier(schema)
+    week = date(2023, 6, 14)
+    for account in ("A", "B"):
+        conn.execute(
+            sql.SQL(
+                "INSERT INTO {}.feat_account_week VALUES (%s, %s, 1, false)"
+            ).format(s),
+            (account, week),
+        )
+    conn.execute(
+        sql.SQL("INSERT INTO {}.alerts VALUES ('x', 'R06', 'B', %s)").format(s), (week,)
+    )
+    both = load_features(conn, schema, schema, week, week, ["R06"])
+    only_b = load_features(conn, schema, schema, week, week, ["R06"], account_id="B")
+    assert both.keys["account_id"].tolist() == ["A", "B"]
+    assert only_b.keys["account_id"].tolist() == ["B"]
+    assert only_b.matrix(["rule_R06_7d"]).tolist() == [[1.0]]

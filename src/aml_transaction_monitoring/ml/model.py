@@ -100,15 +100,21 @@ def rank_in_week(week_end: np.ndarray, score: np.ndarray) -> np.ndarray:
     return rank.to_numpy().astype(np.int64)
 
 
-def contributions(model: Pipeline | XGBClassifier, x: np.ndarray) -> np.ndarray:
+def contributions(
+    model: Pipeline | XGBClassifier,
+    x: np.ndarray,
+    explainer: shap.TreeExplainer | None = None,
+) -> np.ndarray:
     """Per-feature SHAP values (log-odds), one row per row of x.
 
-    XGBoost: exact TreeSHAP (shap.TreeExplainer). Logistic regression: the
-    linear SHAP value, coefficient x standardised input (the standardised
-    training mean is 0, so this is each feature's push from an average row).
+    XGBoost: exact TreeSHAP (shap.TreeExplainer; pass `explainer` to reuse
+    one, e.g. in the API). Logistic regression: the linear SHAP value,
+    coefficient x standardised input (the standardised training mean is 0, so
+    this is each feature's push from an average row).
     """
     if isinstance(model, XGBClassifier):
-        return np.asarray(shap.TreeExplainer(model).shap_values(x), dtype=np.float32)
+        explainer = explainer or shap.TreeExplainer(model)
+        return np.asarray(explainer.shap_values(x), dtype=np.float32)
     scaled = model[:-1].transform(x)
     return (scaled * model[-1].coef_[0]).astype(np.float32)
 

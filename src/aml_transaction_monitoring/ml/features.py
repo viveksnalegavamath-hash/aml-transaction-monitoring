@@ -57,7 +57,7 @@ with hits as (
     join {marts}.alerts as a
       on a.account_id = f.account_id
      and a.alert_date between f.week_end - 29 and f.week_end
-    where f.week_end between %(start)s and %(end)s
+    where f.week_end between %(start)s and %(end)s {account}
     group by f.account_id, f.week_end
 )
 
@@ -65,7 +65,7 @@ select f.account_id, f.week_end, {columns}
 from {features}.{table} as f
 left join hits as h using (account_id, week_end)
 {scope}
-where f.week_end between %(start)s and %(end)s
+where f.week_end between %(start)s and %(end)s {account}
 order by f.week_end, f.account_id collate "C"
 """
 
@@ -73,7 +73,7 @@ COUNT_SQL = """
 select count(*)
 from {features}.{table} as f
 {scope}
-where f.week_end between %(start)s and %(end)s
+where f.week_end between %(start)s and %(end)s {account}
 """
 
 # On the dev sample only sampled accounts have complete histories.
@@ -145,8 +145,10 @@ def load_features(
     end: date,
     rule_ids: list[str],
     sample_only: bool = False,
+    account_id: str | None = None,
 ) -> Features:
-    """Every feature column (all three groups) for weeks ending in [start, end].
+    """Every feature column (all three groups) for weeks ending in [start, end],
+    for every account or only `account_id` (the API scores one account-week).
 
     Rows are sorted by week_end, then account_id. Streams from a server-side
     cursor into a preallocated float32 matrix, so memory holds the matrix
@@ -181,10 +183,15 @@ def load_features(
         if sample_only
         else sql.SQL("")
     )
-    params = {"start": start, "end": end}
+    account = (
+        sql.SQL("and f.account_id = %(account_id)s") if account_id else sql.SQL("")
+    )
+    params = {"start": start, "end": end, "account_id": account_id}
     with conn.transaction():
         with conn.cursor() as cur:
-            cur.execute(sql.SQL(COUNT_SQL).format(scope=scope, **names), params)
+            cur.execute(
+                sql.SQL(COUNT_SQL).format(scope=scope, account=account, **names), params
+            )
             n_rows = cur.fetchone()[0]
         n_cols = len(selected)
         values = np.empty((n_rows, n_cols), dtype=np.float32)
@@ -194,6 +201,7 @@ def load_features(
             rule_counts=rule_counts,
             columns=sql.SQL(", ").join(selected),
             scope=scope,
+            account=account,
             **names,
         )
         row = 0

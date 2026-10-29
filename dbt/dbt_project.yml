@@ -21,6 +21,9 @@ vars:
   # the full tables.
   dev_sample: false
   dev_sample_percent: 10
+  # Read-only database role of the API (config/api.yaml reader_role; a test
+  # checks they match). Feature tables grant it SELECT after each rebuild.
+  api_reader_role: aml_api_reader
 
 flags:
   # No anonymous usage data sent to dbt Labs.

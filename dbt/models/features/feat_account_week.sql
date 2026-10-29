@@ -18,7 +18,7 @@
         {'columns': ['week_end']},
     ],
     pre_hook="set local work_mem = '256MB'",
-    post_hook=inserts,
+    post_hook=inserts + ["{{ grant_select_to_api_reader() }}"],
 ) }}
 
 -- ML features (Phase 3): one row per ACTIVE account-week, that is per account

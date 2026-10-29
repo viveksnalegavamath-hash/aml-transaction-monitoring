@@ -1,0 +1,29 @@
+# FastAPI service (fast-track step 8). Non-secret settings only: the secrets
+# API_KEY and API_DB_PASSWORD live in .env (added by api.provision).
+
+# Read-only database role the API connects as (security rule 4). It may read
+# marts.alerts, marts.ml_alerts and features.feat_account_week only: never the
+# evaluation schema (labels), raw, staging or ref. Keep in sync with the dbt
+# var api_reader_role (a test checks).
+reader_role: aml_api_reader
+reader_tables:
+  - marts.alerts
+  - marts.ml_alerts
+  - features.feat_account_week
+reader_connection_limit: 10
+reader_statement_timeout: 5s
+
+# Exported model (api.model_store export), relative to the project root.
+# Docker mounts it read-only and sets MODEL_DIR instead.
+model_dir: data/ml/api
+# The model the API serves: the selected rules + ML XGBoost.
+feature_set: rules_ml
+
+# Basic rate limiting per client address: at most `requests` in any
+# `per_seconds` window; above that, 429 with Retry-After. /health is exempt.
+rate_limit:
+  requests: 60
+  per_seconds: 60
+
+# Most alerts of each kind (rule, ML) returned for one account.
+max_alerts: 500

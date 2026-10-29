@@ -94,12 +94,12 @@ from aml_transaction_monitoring.ml.model import (
     top_k_per_week,
     top_reasons,
 )
+from aml_transaction_monitoring.ml.store import MODEL_DIR, model_path, selection_path
 from aml_transaction_monitoring.rules.engine import load_rules
 
 logger = logging.getLogger(__name__)
 
 CONFIG_PATH = PROJECT_ROOT / "config" / "ml.yaml"
-MODEL_DIR = PROJECT_ROOT / "data" / "ml"
 MLRUNS_DIR = PROJECT_ROOT / "mlruns"
 EXPERIMENT = "aml-account-week"
 CANDIDATE_SETS = ("ml_only", "rules_ml")
@@ -453,16 +453,12 @@ def grid(config: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def model_path(ds: Dataset, fitted_key: str) -> Path:
-    return MODEL_DIR / f"{ds.name}_{fitted_key}.pkl"
-
-
 def save_models(ds: Dataset, kept: dict[str, Fitted], selected: dict[str, str]) -> None:
     """Pickle every kept model and write the selection (read by the holdout stage)."""
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     manifest = {"dataset": ds.name, "selected": selected, "models": {}}
     for key, f in kept.items():
-        with model_path(ds, key).open("wb") as out:
+        with model_path(ds.name, key).open("wb") as out:
             pickle.dump(f.model, out)
         manifest["models"][key] = {
             "feature_set": f.feature_set,
@@ -473,9 +469,7 @@ def save_models(ds: Dataset, kept: dict[str, Fitted], selected: dict[str, str]) 
             "val_pr_auc": f.pr_auc,
             "best_iteration": f.best_iteration,
         }
-    (MODEL_DIR / f"{ds.name}_selection.json").write_text(
-        json.dumps(manifest, indent=2), encoding="utf-8"
-    )
+    selection_path(ds.name).write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
 def validate(ds: Dataset, config: dict[str, Any], evaluation: dict[str, Any]) -> None:
@@ -699,12 +693,10 @@ class Row:
 
 def load_kept(ds: Dataset) -> tuple[dict[str, Any], dict[str, Any]]:
     """The selection manifest and the unpickled models (our own files, data/ml/)."""
-    manifest = json.loads(
-        (MODEL_DIR / f"{ds.name}_selection.json").read_text(encoding="utf-8")
-    )
+    manifest = json.loads(selection_path(ds.name).read_text(encoding="utf-8"))
     models = {}
     for key in manifest["models"]:
-        with model_path(ds, key).open("rb") as f:
+        with model_path(ds.name, key).open("rb") as f:
             models[key] = pickle.load(f)
     return manifest, models
 
