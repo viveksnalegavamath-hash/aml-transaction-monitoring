@@ -1,0 +1,24 @@
+# Never send secrets, data or local state into a Docker build. The Dockerfile
+# copies only what it names; this list is the second guard.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+data/
+mlruns/
+.git/
+.github/
+.venv/
+.idea/
+.claude/
+CLAUDE.local.md
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+.ruff_cache/
+dbt/target/
+dbt/logs/
+docs/
+tests/
+notebooks/
