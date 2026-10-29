@@ -1,0 +1,44 @@
+# Continuous integration: lint and the tests that need no database, on every push.
+#
+# The runner has no .env, no database and no data (all git-ignored), so the
+# tests that need them skip themselves with a stated reason; everything else
+# (rule specs, evaluation maths, ML features and reasons, the API with fakes,
+# label-isolation guards) runs here. Actions are pinned to full commit SHAs.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv and Python 3.12
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.12.21"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install the locked environment
+        run: uv sync --frozen
+
+      - name: Lint (ruff)
+        run: uv run --frozen ruff check .
+
+      - name: Format check (ruff)
+        run: uv run --frozen ruff format --check .
+
+      - name: Unit tests (no database)
+        run: uv run --frozen pytest -q -rs
