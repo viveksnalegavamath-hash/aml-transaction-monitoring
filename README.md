@@ -1,10 +1,12 @@
 # AML Transaction Monitoring System
 
-An anti-money-laundering (AML) transaction monitoring system of the kind UK banks run, built end to end on **9.5 million synthetic, UK-focused transactions**. Typology rules raise alerts, an XGBoost model ranks every active account each week, every alert explains itself in plain English, customers are screened against the UK Sanctions List, and the results are measured honestly: thresholds and models chosen on one period, reported on a later, untouched one.
+[![CI](https://github.com/viveksnalegavamath-hash/aml-transaction-monitoring/actions/workflows/ci.yml/badge.svg)](https://github.com/viveksnalegavamath-hash/aml-transaction-monitoring/actions/workflows/ci.yml)
+
+An anti-money-laundering (AML) transaction monitoring system of the kind UK banks run, built end to end on **9.5 million synthetic, UK-focused transactions**. Typology rules raise alerts, an XGBoost model ranks every active account each week, every alert explains itself in plain English, customers are screened against the UK Sanctions List, a read-only REST API serves scores and alerts, and the results are measured honestly: thresholds and models chosen on one period, reported on a later, untouched one.
 
 > All transactions and customers are **synthetic** (SAML-D and a Faker-generated KYC table). No real personal data is used. The sanctions, FATF and World Bank data are public official lists.
 
-**Status:** data, rules, tuning, sanctions screening, worked case and the ML layer (XGBoost with SHAP reasons, compared with the rules on the same hold-out) are done. Next: a FastAPI service with Docker Compose and CI.
+**Status: fast track complete (29 Oct 2026).** Data foundation, rules engine with tuning, sanctions screening, worked investigation case, ML layer (XGBoost with SHAP reasons, compared with the rules on the same hold-out), and a read-only FastAPI service running in Docker Compose with CI on every push. What was cut, and why, is under [Future work](#future-work).
 
 ## Results at a glance
 
@@ -81,6 +83,9 @@ flowchart LR
     AL --> EV[Evaluation<br/>labels joined only here]
     MA --> EV
     EV --> D[docs/results]
+    F --> API[FastAPI<br/>read-only role, API key]
+    AL --> API
+    MA --> API
 ```
 
 - **Data and modelling:** raw files load unchanged into PostgreSQL with an audit log. **dbt** cleans and types them, maps countries to ISO codes, joins FATF status and an internal country rating (World Bank governance indicators, split into thirds), and tests every assumption: row counts, keys, accepted values, one common amount scale. 112 dbt tests in total.
@@ -89,6 +94,7 @@ flowchart LR
 - **Tuning:** above/below-the-line testing on the tuning months only. Candidates are generated once and filtered for each option, and the tuning shortcut was checked against the slow, trusted path before use.
 - **ML layer:** one row per active account-week, with features computed in dbt from exact 7/30/90-day windows that end on the scoring day. A brute-force test proves no feature uses a later transaction. Training uses weeks scored January–April 2023; May chooses the settings and stops the boosting early; the hold-out is scored once, and the code refuses to score it twice. A logistic regression baseline and XGBoost runs are tracked in MLflow. Alerts are the top accounts of each week, at a fixed capacity, each with its top three TreeSHAP reasons.
 - **Sanctions screening:** normalised names (accents, titles, legal suffixes), rapidfuzz word-order and subset scoring, and date of birth and nationality used to set the review priority. These never drop a match, because a missed sanctions hit is an offence.
+- **API:** FastAPI with Pydantic schemas, served from Docker Compose next to the database. It connects as a read-only database role that has no access to the label schema, so no response can contain a label. Details under [API](#api).
 - **Decisions are written down:** [`LEARNING.md`](LEARNING.md) records every design decision with the alternatives considered, including the ones that did not work.
 
 ## Repository layout
@@ -100,12 +106,15 @@ src/aml_transaction_monitoring/
     screening/    S01 sanctions screening
     ml/           account-week features, models, SHAP reasons (no labels)
     evaluation/   rules report, tuning harness, ML training and evaluation
+    api/          FastAPI app, read-only role setup, model export
 rules/            R01–R10 and S01 YAML specs (all thresholds live here)
-config/           generator, evaluation periods, tuning grids, ML settings
+config/           generator, evaluation periods, tuning grids, ML and API settings
 dbt/              staging, marts, features, evaluation models, seeds, tests
 sql/profiling/    data profiling and leakage checks
-tests/            pytest (220 tests)
+tests/            pytest (249 tests; 175 need no database and run in CI)
 docs/             project plan, results, worked case, model documentation
+Dockerfile        API image; docker-compose.yml runs it next to PostgreSQL
+.github/          CI workflow: ruff and tests on every push
 ```
 
 ## How to run
@@ -148,7 +157,47 @@ Prerequisites: Docker Desktop, [uv](https://docs.astral.sh/uv/), a Kaggle accoun
 
    For development, `dbt build --vars '{dev_sample: true}'` and the `--sample` flags work on a 10% account sample. Reported numbers always come from the full data.
 
-5. Checks: `uv run pytest` and `uv run ruff check .`
+5. Checks: `uv run pytest` and `uv run ruff check .` (CI runs the same on every push, without the database).
+
+## API
+
+A read-only REST API over the alerts and the ML model. Interactive Swagger docs are at **http://127.0.0.1:8000/docs** once it runs.
+
+![Swagger docs of the API](docs/images/api_docs.png)
+
+| Endpoint | Key needed | What it does |
+| --- | --- | --- |
+| `GET /health` | no | Database reachable, model loaded |
+| `POST /transactions/score` | yes | Scores one account-week, given `{"account_id": "...", "week_end": "2023-08-23"}` (a Wednesday), with the served XGBoost model (rules + ML), and returns the score and its top three SHAP reasons in plain English |
+| `GET /alerts/{account_id}` | yes | The account's rule alerts and ML alerts, newest first |
+
+**Run it** (after step 4 above, once the ML validate stage has run):
+
+1. Create the API's secrets and its read-only database role, then export the model:
+
+   ```bash
+   uv run python -m aml_transaction_monitoring.api.provision
+   uv run python -m aml_transaction_monitoring.api.model_store
+   ```
+
+   `provision` adds `API_KEY` and `API_DB_PASSWORD` to `.env` without printing them. It creates the role `aml_api_reader`, which can read only the alert and feature tables, and checks that the role can neither reach the label schema nor write. `model_store` writes the model in XGBoost's JSON format and checks it scores real rows exactly like the trained one.
+
+2. Start the database and the API (both listen on 127.0.0.1 only):
+
+   ```bash
+   docker compose up -d --build
+   ```
+
+   Without Docker: `uv run uvicorn --factory aml_transaction_monitoring.api.app:create_app --host 127.0.0.1 --port 8000 --no-access-log`
+
+3. Open http://127.0.0.1:8000/docs, click **Authorize**, paste your `API_KEY` from `.env`, and try an endpoint. For example, `POST /transactions/score` with `{"account_id": "5826952585", "week_end": "2023-08-23"}` returns a score of 1.000 and *"4 new payees in 7 days; 7 new senders in 30 days; 3 new senders in 7 days"*.
+
+**Controls:**
+- The `X-API-Key` header is checked in constant time.
+- Basic rate limiting: 60 requests a minute per client, then `429` with `Retry-After` (`config/api.yaml`).
+- Pydantic rejects unknown fields, non-digit account IDs and weeks that do not end on a Wednesday.
+- Errors return a short message, never a stack trace. Logs show the route template (`/alerts/{account_id}`), never an account ID.
+- The container runs as a non-root user on a read-only filesystem, with all Linux capabilities dropped, and receives only the variables it needs.
 
 ## Data and licences
 
@@ -166,8 +215,9 @@ Raw data is never committed. The results files in `docs/` are derived from SAML-
 ## Security
 
 - Credentials come only from environment variables (`.env`, git-ignored); none are hard-coded.
-- The database binds to `127.0.0.1` only. The container runs with `no-new-privileges`.
-- gitleaks scans every commit (pre-commit hook). Dependencies are pinned in `uv.lock`, and Dependabot alerts are on.
+- The database and the API bind to `127.0.0.1` only. Containers run with `no-new-privileges`; the API container is also non-root, read-only and without Linux capabilities.
+- The API reads through a separate read-only database role that cannot see the label schema. Its password is stored in PostgreSQL as a SCRAM verifier computed locally, so the plain password is never sent to the server.
+- gitleaks scans every commit (pre-commit hook). Dependencies are pinned in `uv.lock`, the Docker image installs them with hash checks, CI actions are pinned to commit SHAs, and Dependabot alerts are on.
 - One real incident is written up in [`LEARNING.md`](LEARNING.md): a database password was shown in a development session transcript. It was rotated the same day, and the cause and its prevention are recorded.
 
 ## Limitations
@@ -180,7 +230,7 @@ Raw data is never committed. The results files in `docs/` are derived from SAML-
 
 ## Future work
 
-- FastAPI service with API-key auth and rate limiting; Docker Compose; GitHub Actions CI (next).
+- Charts of the results in this README (planned as the Power BI replacement; the results are in tables for now).
 - Cut from this version, with the reasons recorded: R08 round-tripping (SAML-D has no 3–4-account cycles), network analysis, the IBM AMLworld out-of-sample test, daily customer risk scores, AWS deployment, n8n re-screening workflow, an AI analyst assistant, a Power BI dashboard, a real-time payment hold after a SAR.
 
 ## Licence
