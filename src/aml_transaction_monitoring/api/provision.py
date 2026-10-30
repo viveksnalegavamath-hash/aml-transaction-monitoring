@@ -1,8 +1,9 @@
 """Set up the API's secrets and its read-only database role. Safe to re-run.
 
-1. Adds API_KEY and API_DB_PASSWORD to `.env` if they are missing: random
-   values from `secrets`, appended without ever being printed (the file stays
-   mode 600). Existing values are kept.
+1. Sets API_KEY and API_DB_PASSWORD in `.env` if they are missing or empty:
+   random values from `secrets`, never printed; an empty line is filled in
+   place (an editor slip once left `API_KEY=` and a second line was appended).
+   Written atomically, mode 600. Values already set are kept.
 2. Creates or updates the role in config/api.yaml (default aml_api_reader):
    it can log in, read only the tables listed there, has every transaction
    read-only by default, a statement timeout and a connection limit. The
@@ -20,6 +21,7 @@ Usage:
 import base64
 import hashlib
 import hmac
+import io
 import logging
 import os
 import secrets
@@ -27,11 +29,18 @@ from pathlib import Path
 from typing import Any
 
 import psycopg
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 from psycopg import sql
 
 from aml_transaction_monitoring.api.settings import load_config
 from aml_transaction_monitoring.db import get_connection, get_reader_connection
+from aml_transaction_monitoring.envfile import (
+    new_secret,
+    replace_values,
+    staged_path,
+    swap_in,
+    write_private,
+)
 from aml_transaction_monitoring.ingestion.load_raw import PROJECT_ROOT
 
 logger = logging.getLogger(__name__)
@@ -63,20 +72,23 @@ def scram_verifier(
 
 
 def ensure_secrets(env_path: Path = ENV_PATH) -> list[str]:
-    """Append any missing secret to `.env`; return the names added (never values)."""
-    load_dotenv(env_path)
-    added = []
-    for name in SECRETS:
-        if os.getenv(name):
-            continue
-        value = secrets.token_urlsafe(32)
-        with env_path.open("a", encoding="utf-8") as f:
-            # Leading newline: safe even if the file does not end with one.
-            f.write(f"\n{name}={value}\n")
-        os.environ[name] = value
-        added.append(name)
+    """Set every missing or EMPTY secret in `.env`; return the names set (never values).
+
+    Values already set are kept. An empty line (`API_KEY=`) is filled in
+    place, never duplicated. The new file is written beside `.env` with mode
+    600 and swapped in atomically.
+    """
+    text = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
+    current = dotenv_values(stream=io.StringIO(text))
+    values = {name: new_secret() for name in SECRETS if not current.get(name)}
+    if values:
+        staged = staged_path(env_path)
+        write_private(staged, replace_values(text, values))
+        swap_in(staged, env_path)
     env_path.chmod(0o600)
-    return added
+    for name in SECRETS:
+        os.environ[name] = values.get(name) or current[name]
+    return list(values)
 
 
 def create_role(

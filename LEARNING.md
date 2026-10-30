@@ -370,3 +370,36 @@ Code `src/aml_transaction_monitoring/api/`, settings `config/api.yaml`, `Dockerf
   - Colours from the dataviz reference palette, checked with its validator for colour-vision deficiency in light and dark mode. Two images: the README shows the one matching the reader's theme.
   - Labels in text colours, a legend plus selective direct labels, and the numbers repeated in a table under the chart.
   - Gotcha: matplotlib resolves generic font names when the image is saved, so the font setting must also wrap `savefig`.
+
+## Security incident: a secret shown in a shared screenshot; API key wiped by an editor slip (29–30 Oct 2026)
+
+- **What happened:**
+  1. The value of `API_KEY` in `.env` was emptied by an accidental edit in PyCharm. The line stayed as `API_KEY=`, so the API's settings, Docker Compose and four tests saw no key.
+  2. Separately, a screenshot of the Swagger docs shared in a chat showed a secret's value. Swagger's "Try it out" panel prints the request, including the `X-API-Key` header, in plain text. It was not certain which value was exposed, so every secret the API touches was treated as exposed: the API key, the API's database password and the admin database password.
+- **Impact:** the database and API listen on 127.0.0.1 only, so the values were not usable from another machine. No secret was ever committed: gitleaks scanned the full history, 35 commits, and found nothing. The README's own `/docs` screenshot was taken without authorising, so it holds no key. Treated as exposed anyway.
+- **Response (no value displayed at any point):**
+  1. **New API key** with `api.provision`.
+  2. **Both database passwords rotated** with the 25 Oct method, now a tested module, `rotate_secrets`:
+     - new random values, kept in memory only;
+     - the new `.env` staged beside the old one with mode 600 and every other line unchanged;
+     - both roles changed over one admin connection opened with the old password;
+     - checked that each new password logs in and each old one is refused (old ones restored if anything failed);
+     - only then was `.env` swapped in, in one atomic rename.
+
+     Improvement on 25 Oct: PostgreSQL received SCRAM verifiers computed locally, so the plain passwords never reached the server or its logs.
+  3. **Containers rebuilt and recreated** (`docker compose up -d --build`). Compose was run with no secret in its environment, so it read the new values from `.env` (a variable in the shell would override `.env`). The API now also runs the patched opentelemetry-api 1.45.1.
+  4. **Checked:**
+     - `/health` returns 200, and the old key, kept in memory from the old container, gets 401 on both protected endpoints.
+     - No key: 401. The new key: 200.
+     - `.env` keeps every other line in the same order, each key once, mode 600.
+     - All 261 tests pass, including the database-backed API tests that use the new key.
+- **A bug the response found.** `provision` treated the empty `API_KEY=` as missing and *appended* a second `API_KEY` line instead of filling the empty one. Both python-dotenv and Compose take the last occurrence, so the API worked, but a duplicate key is fragile. The runbook's final check ("each key once") caught it.
+  - The empty line was removed with the same safe write. The key value was unchanged, so the running API still matched.
+  - `provision` now fills an empty value in place, using a shared `envfile` module for safe `.env` edits. A test covers exactly this case.
+  - In one line: a check written for the "after" state found a bug the happy path hid.
+- **Prevention:**
+  - Before sharing any screenshot of `/docs`, press **Logout** in Swagger's Authorize dialog and never show a "Try it out" response panel: it contains the curl command with the key.
+  - Keep `.env` closed in the editor. To use a secret, copy it to the clipboard without displaying it (`grep '^API_KEY=' .env | cut -d= -f2- | tr -d '\n' | pbcopy`), then clear the clipboard after use.
+  - After an accidental edit, `provision` restores missing API secrets safely.
+  - Rotation is one command, `uv run python -m aml_transaction_monitoring.rotate_secrets`, followed by `docker compose up -d --build` and the DBeaver password update.
+- **In one line:** "When it wasn't clear which secret was exposed, I rotated all three, proved the old ones were refused, and kept every value off the screen, the command line and the database server."
