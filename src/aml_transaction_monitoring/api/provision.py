@@ -3,7 +3,9 @@
 1. Sets API_KEY and API_DB_PASSWORD in `.env` if they are missing or empty:
    random values from `secrets`, never printed; an empty line is filled in
    place (an editor slip once left `API_KEY=` and a second line was appended).
-   Written atomically, mode 600. Values already set are kept.
+   Written atomically, mode 600. Values already set are kept, except the API
+   key with --rotate-api-key (after an exposure); then recreate the API
+   container (`docker compose up -d`) so it reads the new key.
 2. Creates or updates the role in config/api.yaml (default aml_api_reader):
    it can log in, read only the tables listed there, has every transaction
    read-only by default, a statement timeout and a connection limit. The
@@ -16,8 +18,10 @@ Prints names and PASS/FAIL only, never a secret.
 
 Usage:
     uv run python -m aml_transaction_monitoring.api.provision
+    uv run python -m aml_transaction_monitoring.api.provision --rotate-api-key
 """
 
+import argparse
 import base64
 import hashlib
 import hmac
@@ -71,16 +75,29 @@ def scram_verifier(
     return f"SCRAM-SHA-256${iterations}:{b64(salt)}${b64(stored_key)}:{b64(server_key)}"
 
 
-def ensure_secrets(env_path: Path = ENV_PATH) -> list[str]:
-    """Set every missing or EMPTY secret in `.env`; return the names set (never values).
+def ensure_secrets(
+    env_path: Path = ENV_PATH, rotate: tuple[str, ...] = ()
+) -> list[str]:
+    """Set every missing or EMPTY secret in `.env`, and replace those named in
+    `rotate`; return the names set (never values).
 
-    Values already set are kept. An empty line (`API_KEY=`) is filled in
+    Other values already set are kept. An empty line (`API_KEY=`) is filled in
     place, never duplicated. The new file is written beside `.env` with mode
     600 and swapped in atomically.
+
+    Raises:
+        ValueError: if `rotate` names a secret this module does not manage.
     """
+    unknown = sorted(set(rotate) - set(SECRETS))
+    if unknown:
+        raise ValueError(f"Not managed by provision: {', '.join(unknown)}")
     text = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
     current = dotenv_values(stream=io.StringIO(text))
-    values = {name: new_secret() for name in SECRETS if not current.get(name)}
+    values = {
+        name: new_secret()
+        for name in SECRETS
+        if name in rotate or not current.get(name)
+    }
     if values:
         staged = staged_path(env_path)
         write_private(staged, replace_values(text, values))
@@ -179,20 +196,35 @@ def check_role(config: dict[str, Any]) -> bool:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--rotate-api-key",
+        action="store_true",
+        help="replace API_KEY even if it is set (after an exposure)",
+    )
+    args = parser.parse_args()
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
     )
     config = load_config()
-    added = ensure_secrets()
+    rotate = ("API_KEY",) if args.rotate_api_key else ()
+    added = ensure_secrets(rotate=rotate)
     logger.info(
         "Secrets in .env: %s",
-        ", ".join(f"{n} ({'added' if n in added else 'kept'})" for n in SECRETS),
+        ", ".join(
+            f"{n} ({'rotated' if n in rotate else 'added' if n in added else 'kept'})"
+            for n in SECRETS
+        ),
     )
     with get_connection() as conn:
         create_role(conn, config, os.environ["API_DB_PASSWORD"])
     if not check_role(config):
         raise SystemExit("Role checks failed")
     logger.info("All role checks passed")
+    if rotate:
+        logger.info(
+            "Recreate the API container to use the new key: docker compose up -d"
+        )
 
 
 if __name__ == "__main__":

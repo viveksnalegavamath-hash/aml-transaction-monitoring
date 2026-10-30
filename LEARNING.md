@@ -403,3 +403,28 @@ Code `src/aml_transaction_monitoring/api/`, settings `config/api.yaml`, `Dockerf
   - After an accidental edit, `provision` restores missing API secrets safely.
   - Rotation is one command, `uv run python -m aml_transaction_monitoring.rotate_secrets`, followed by `docker compose up -d --build` and the DBeaver password update.
 - **In one line:** "When it wasn't clear which secret was exposed, I rotated all three, proved the old ones were refused, and kept every value off the screen, the command line and the database server."
+
+## API key rotation as one command; a browser 401 that was not Docker (30 Oct 2026)
+
+- **What happened:**
+  - `GET /alerts/{account_id}` failed in the browser. Docker had *not* been restarted: both containers had been up and healthy for 23 hours.
+  - The API's own log (route template and status only, no account IDs) showed that the browser's requests reached the API and got **401**: Swagger sent a missing or wrong key. The same request with the key from `.env` returned 200.
+  - Separately, the current API key appeared in a shared Swagger screenshot, so it had to be rotated.
+- **Decision:** `api.provision --rotate-api-key` replaces `API_KEY` even when it is set. The database password is kept, and the line is replaced in place (mode 600, atomic swap, via the shared `envfile` module). Without the flag, `provision` behaves as before.
+- **Why `provision`, not `rotate_secrets`:**
+  - `provision` already creates the API key.
+  - `rotate_secrets` handles database passwords. Its checks are logins refused or accepted by PostgreSQL, which do not apply to an API key.
+  - An API key is proven dead by the API returning 401. That needs the container recreated, which is outside both modules.
+- **Alternatives considered:**
+  - Empty the `API_KEY=` line by hand, then run `provision`. Rejected: an editor edit of `.env` caused the 29 Oct slip.
+  - A separate one-off script. Rejected: a third piece of code writing `.env`.
+- **Verified (no value displayed):**
+  - The old key, held in memory from the running container, returned 200 before the rotation.
+  - After `provision --rotate-api-key` and `docker compose up -d` (only `aml-api` recreated; `aml-postgres` kept running), the old key got 401 on both protected endpoints, no key got 401, and the new key got 200 on both.
+  - `.env` has `API_KEY` once, 32 letters and digits, mode 600.
+  - 262 tests pass.
+- **Runbook for a leaked API key:**
+  1. `uv run python -m aml_transaction_monitoring.api.provision --rotate-api-key`
+  2. `docker compose up -d`
+  3. Copy the new key to the clipboard without displaying it, and authorise again in Swagger.
+- **In one line:** "Before restarting anything, I read the service's own log: the requests were arriving and being refused, so it was the key, not the infrastructure."

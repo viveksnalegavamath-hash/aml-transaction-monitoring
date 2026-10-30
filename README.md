@@ -192,7 +192,7 @@ A read-only REST API over the alerts and the ML model. Interactive Swagger docs 
    uv run python -m aml_transaction_monitoring.api.model_store
    ```
 
-   `provision` adds `API_KEY` and `API_DB_PASSWORD` to `.env` without printing them. It creates the role `aml_api_reader`, which can read only the alert and feature tables, and checks that the role can neither reach the label schema nor write. `model_store` writes the model in XGBoost's JSON format and checks it scores real rows exactly like the trained one.
+   `provision` adds `API_KEY` and `API_DB_PASSWORD` to `.env` without printing them (after an exposure, `provision --rotate-api-key` replaces the key; then `docker compose up -d` recreates the API container). It creates the role `aml_api_reader`, which can read only the alert and feature tables, and checks that the role can neither reach the label schema nor write. `model_store` writes the model in XGBoost's JSON format and checks it scores real rows exactly like the trained one.
 
 2. Start the database and the API (both listen on 127.0.0.1 only):
 

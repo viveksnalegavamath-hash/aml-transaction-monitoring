@@ -17,7 +17,8 @@ verifiers computed here, so the plain passwords never reach the server.
    same other lines, the new values readable.
 
 Prints key names, PASS / FAIL and counts only; database errors by type only.
-The API key is not handled here (api.provision adds one when it is missing).
+The API key is not handled here: api.provision adds one when it is missing and
+replaces it with --rotate-api-key.
 
 Usage:
     uv run python -m aml_transaction_monitoring.rotate_secrets

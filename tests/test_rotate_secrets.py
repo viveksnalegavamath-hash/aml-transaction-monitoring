@@ -82,3 +82,27 @@ def test_provision_fills_an_empty_secret_in_place(
     before = env.read_text()
     assert ensure_secrets(env) == []  # second run keeps the values
     assert env.read_text() == before
+
+
+def test_provision_rotates_only_the_api_key_in_place(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in ("API_KEY", "API_DB_PASSWORD"):
+        monkeypatch.setenv(name, "placeholder")  # restored after the test
+    env = tmp_path / ".env"
+    env.write_text("POSTGRES_DB=aml\nAPI_KEY=old-key\n# keep\nAPI_DB_PASSWORD=pw\n")
+    assert ensure_secrets(env, rotate=("API_KEY",)) == ["API_KEY"]
+    lines = env.read_text().splitlines()
+    assert [env_key(line) for line in lines] == [
+        "POSTGRES_DB",
+        "API_KEY",
+        None,
+        "API_DB_PASSWORD",
+    ]
+    assert lines[0] == "POSTGRES_DB=aml"
+    assert lines[2:] == ["# keep", "API_DB_PASSWORD=pw"]  # password kept
+    new_key = lines[1].split("=", 1)[1]
+    assert new_key != "old-key" and len(new_key) == 32
+    assert mode(env) == 0o600
+    with pytest.raises(ValueError, match="POSTGRES_PASSWORD"):
+        ensure_secrets(env, rotate=("POSTGRES_PASSWORD",))
